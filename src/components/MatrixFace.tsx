@@ -9,6 +9,7 @@ interface Props {
   weather?: { condition: string; temp: number } | null;
   orientation?: { beta: number; gamma: number } | null;
   onDoubleTap?: () => void;
+  showDesign?: boolean;
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -238,6 +239,7 @@ function rRect(
 export function MatrixFace({
   agentState, activeTool, tokenCount = 0, amplitude = 0, weather,
   orientation, onDoubleTap,
+  showDesign = false,
 }: Props) {
   const canvasRef  = useRef<HTMLCanvasElement>(null);
   const propsRef   = useRef({ agentState, activeTool, tokenCount, amplitude, weather, orientation });
@@ -262,13 +264,26 @@ export function MatrixFace({
     const ctx = canvas.getContext("2d")!;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
+    // Use getBoundingClientRect — reliable in WKWebView unlike clientWidth
     const resize = () => {
-      canvas.width  = canvas.clientWidth  * dpr;
-      canvas.height = canvas.clientHeight * dpr;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const rect = canvas.getBoundingClientRect();
+      const w = Math.floor(rect.width  * dpr);
+      const h = Math.floor(rect.height * dpr);
+      if (w > 0 && h > 0 && (canvas.width !== w || canvas.height !== h)) {
+        canvas.width  = w;
+        canvas.height = h;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
     };
-    resize();
-    window.addEventListener("resize", resize);
+
+    // ResizeObserver fires after layout — catches Telegram's deferred expand()
+    const ro = new ResizeObserver(resize);
+    ro.observe(canvas);
+    resize(); // also try immediately
+
+    // Telegram viewportChanged fires when expand() completes
+    const twa = (window as any).Telegram?.WebApp;
+    twa?.onEvent?.("viewportChanged", resize);
 
     const cols = makeCols();
     let cells: Cell[] = [];
@@ -287,9 +302,13 @@ export function MatrixFace({
     });
 
     const draw = () => {
+      raf = requestAnimationFrame(draw);
+      try {
       frame++;
       const { agentState: state, amplitude: level, orientation: ori } = propsRef.current;
-      const W = canvas.clientWidth, H = canvas.clientHeight;
+      const rect = canvas.getBoundingClientRect();
+      const W = rect.width, H = rect.height;
+      if (W <= 0 || H <= 0) return;
 
       // Layout — face fills almost full canvas
       const PAD = 6, HDR = 32, FOOT = 24;
@@ -591,15 +610,39 @@ export function MatrixFace({
         ctx.fill();
       }
 
-      raf = requestAnimationFrame(draw);
+      } catch(e) { console.error("MatrixFace draw error:", e); }
     };
 
     raf = requestAnimationFrame(draw);
-    return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", resize); };
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      twa?.offEvent?.("viewportChanged", resize);
+    };
   }, []);
 
   return (
     <div className="relative w-full" style={{ minHeight: 420 }}>
+      {/* Design scope: developer-only thumbnails and notes. Enable with `showDesign` prop.
+          Images (place into `public/design/`):
+          - design/matrix-face-1.png  : static/base + talking frames grid
+          - design/matrix-face-2.png  : facial-expression tiled grid
+        These are intentionally optional and only shown in dev/debug flows.
+      */}
+      {showDesign && (
+        <div style={{ position: "absolute", inset: 12, zIndex: 60, pointerEvents: "none" }}>
+          <div style={{ display: "flex", gap: 12 }}>
+            <div style={{ width: 220, background: "#001207", border: "1px solid rgba(0,200,120,0.12)", padding: 6, borderRadius: 8 }}>
+              <img src="/design/matrix-face-1.png" alt="Matrix face design 1" style={{ width: "100%", display: "block", borderRadius: 6 }} />
+              <div style={{ color: "#6fffb0", fontSize: 11, paddingTop: 6 }}>Design: talking frames / states</div>
+            </div>
+            <div style={{ width: 220, background: "#001207", border: "1px solid rgba(0,200,120,0.12)", padding: 6, borderRadius: 8 }}>
+              <img src="/design/matrix-face-2.png" alt="Matrix face design 2" style={{ width: "100%", display: "block", borderRadius: 6 }} />
+              <div style={{ color: "#6fffb0", fontSize: 11, paddingTop: 6 }}>Design: expression tiles and transitions</div>
+            </div>
+          </div>
+        </div>
+      )}
       <canvas
         ref={canvasRef}
         className="w-full"
