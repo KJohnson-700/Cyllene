@@ -214,6 +214,26 @@ function makeCols(): Col[] {
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
+// ── roundRect polyfill (Telegram WebView doesn't support ctx.roundRect) ───────
+function rRect(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number,
+  r: number | [number, number, number, number],
+) {
+  const [tl, tr, br, bl] = Array.isArray(r) ? r : [r, r, r, r];
+  ctx.beginPath();
+  ctx.moveTo(x + tl, y);
+  ctx.lineTo(x + w - tr, y);
+  ctx.arcTo(x + w, y,         x + w, y + tr,      tr);
+  ctx.lineTo(x + w, y + h - br);
+  ctx.arcTo(x + w, y + h,     x + w - br, y + h,  br);
+  ctx.lineTo(x + bl, y + h);
+  ctx.arcTo(x,      y + h,    x, y + h - bl,       bl);
+  ctx.lineTo(x, y + tl);
+  ctx.arcTo(x,      y,        x + tl, y,            tl);
+  ctx.closePath();
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 export function MatrixFace({
   agentState, activeTool, tokenCount = 0, amplitude = 0, weather,
@@ -454,22 +474,19 @@ export function MatrixFace({
       ctx.shadowBlur = state === "alert" ? 16 : 10;
       ctx.strokeStyle = shellCss;
       ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.roundRect(PAD, PAD, W - PAD * 2, H - PAD * 2, r12);
+      rRect(ctx, PAD, PAD, W - PAD * 2, H - PAD * 2, r12);
       ctx.stroke();
       ctx.restore();
 
       // Inner dim border
       ctx.strokeStyle = `rgba(${shellRgb},0.20)`;
       ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.roundRect(PAD + 2, PAD + 2, W - PAD*2 - 4, H - PAD*2 - 4, r12 - 2);
+      rRect(ctx, PAD + 2, PAD + 2, W - PAD*2 - 4, H - PAD*2 - 4, r12 - 2);
       ctx.stroke();
 
       // Title bar fill
       ctx.fillStyle = "rgba(0,5,2,0.97)";
-      ctx.beginPath();
-      ctx.roundRect(PAD + 1, PAD + 1, W - PAD*2 - 2, HDR, [r12 - 1, r12 - 1, 0, 0]);
+      rRect(ctx, PAD + 1, PAD + 1, W - PAD*2 - 2, HDR, [r12 - 1, r12 - 1, 0, 0]);
       ctx.fill();
 
       // Title separator
@@ -539,8 +556,7 @@ export function MatrixFace({
 
       // Footer fill
       ctx.fillStyle = "rgba(0,5,2,0.97)";
-      ctx.beginPath();
-      ctx.roundRect(PAD + 1, H - PAD - FOOT, W - PAD*2 - 2, FOOT - 1, [0, 0, r12 - 1, r12 - 1]);
+      rRect(ctx, PAD + 1, H - PAD - FOOT, W - PAD*2 - 2, FOOT - 1, [0, 0, r12 - 1, r12 - 1]);
       ctx.fill();
 
       // Footer separator
@@ -571,8 +587,7 @@ export function MatrixFace({
       if (state === "alert") {
         const alertK = 0.06 + 0.04 * Math.sin(frame * 0.15);
         ctx.fillStyle = `rgba(255,0,0,${alertK})`;
-        ctx.beginPath();
-        ctx.roundRect(PAD, PAD, W - PAD*2, H - PAD*2, r12);
+        rRect(ctx, PAD, PAD, W - PAD*2, H - PAD*2, r12);
         ctx.fill();
       }
 
