@@ -474,7 +474,8 @@ export function setMainButton(options: MainButtonOptions) {
   const btn = twa?.MainButton;
   if (!btn) return () => {};
 
-  btn.setText(options.text);
+  // setText throws "Bottom button text is required" on empty string
+  if (options.text) btn.setText(options.text);
   btn.setParams({
     color: options.color,
     text_color: options.textColor,
@@ -493,12 +494,20 @@ export function setMainButton(options: MainButtonOptions) {
 
 // ── Storage: CloudStorage (1024 keys, 4096 bytes/value) ───────────────────────
 
+// CloudStorage was added in Telegram 6.9 — guard with version check AND try/catch
+// because older simulator builds expose the object but throw on any call.
+const hasCloudStorage = () => isVersionAtLeast("6.9") && !!twa?.CloudStorage?.getItem;
+
 export async function loadPreference(key: string): Promise<string | null> {
-  if (twa?.CloudStorage?.getItem) {
+  if (hasCloudStorage()) {
     return new Promise((resolve) => {
-      twa!.CloudStorage.getItem(key, (err, value) => {
-        resolve(err ? localStorage.getItem(key) : (value || localStorage.getItem(key)));
-      });
+      try {
+        twa!.CloudStorage.getItem(key, (err, value) => {
+          resolve(err ? localStorage.getItem(key) : (value || localStorage.getItem(key)));
+        });
+      } catch {
+        resolve(localStorage.getItem(key));
+      }
     });
   }
   return localStorage.getItem(key);
@@ -506,18 +515,26 @@ export async function loadPreference(key: string): Promise<string | null> {
 
 export async function savePreference(key: string, value: string): Promise<void> {
   localStorage.setItem(key, value);
-  if (twa?.CloudStorage?.setItem) {
+  if (hasCloudStorage()) {
     await new Promise<void>((resolve) => {
-      twa!.CloudStorage.setItem(key, value, () => resolve());
+      try {
+        twa!.CloudStorage.setItem(key, value, () => resolve());
+      } catch {
+        resolve();
+      }
     });
   }
 }
 
 export async function removePreference(key: string): Promise<void> {
   localStorage.removeItem(key);
-  if (twa?.CloudStorage?.removeItem) {
+  if (hasCloudStorage()) {
     await new Promise<void>((resolve) => {
-      twa!.CloudStorage.removeItem(key, () => resolve());
+      try {
+        twa!.CloudStorage.removeItem(key, () => resolve());
+      } catch {
+        resolve();
+      }
     });
   }
 }
