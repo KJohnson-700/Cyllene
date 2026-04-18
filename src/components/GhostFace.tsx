@@ -38,6 +38,7 @@ interface Expr {
   eyeOffsetY:  number;  // -1..1, shifts both eyes up/down relative
   pupilOffX:   number;  // -1..1 pupil horizontal offset
   pupilOffY:   number;
+  xEyes:       number;  // 0=normal eyes, 1=X eyes (KO/error)
   mouthOpen:   number;  // 0=shut, 1=full open oval
   smile:       number;  // -1=frown … 1=big smile (when mouthOpen≈0)
   tilt:        number;  // body lean (radians)
@@ -48,6 +49,7 @@ interface Expr {
   floatAmp:    number;  // float amplitude scale
   floatSpeed:  number;  // float frequency scale
   driftAmp:    number;  // horizontal drift amplitude
+  spinSpeed:   number;  // full rotations per second (0 = no spin)
 }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -58,6 +60,7 @@ function lerpE(a: Expr, b: Expr, t: number): Expr {
     eyeOffsetY: lerp(a.eyeOffsetY, b.eyeOffsetY, t),
     pupilOffX:  lerp(a.pupilOffX,  b.pupilOffX,  t),
     pupilOffY:  lerp(a.pupilOffY,  b.pupilOffY,  t),
+    xEyes:      lerp(a.xEyes,      b.xEyes,      t),
     mouthOpen:  lerp(a.mouthOpen,  b.mouthOpen,  t),
     smile:      lerp(a.smile,      b.smile,      t),
     tilt:       lerp(a.tilt,       b.tilt,       t),
@@ -68,48 +71,49 @@ function lerpE(a: Expr, b: Expr, t: number): Expr {
     floatAmp:   lerp(a.floatAmp,   b.floatAmp,   t),
     floatSpeed: lerp(a.floatSpeed, b.floatSpeed, t),
     driftAmp:   lerp(a.driftAmp,   b.driftAmp,   t),
+    spinSpeed:  lerp(a.spinSpeed,  b.spinSpeed,  t),
   };
 }
 
 const E_IDLE: Expr = {
   eyeOpenL: 1, eyeOpenR: 1, eyeOffsetY: 0,
-  pupilOffX: 0, pupilOffY: 0,
+  pupilOffX: 0, pupilOffY: 0, xEyes: 0,
   mouthOpen: 0, smile: 0.75,
   tilt: 0, wriggle: 0.22,
   armRaise: 0, blush: 0.65,
-  squishY: 1, floatAmp: 1, floatSpeed: 1, driftAmp: 0.5,
+  squishY: 1, floatAmp: 1, floatSpeed: 1, driftAmp: 0.5, spinSpeed: 0,
 };
 const E_REASONING: Expr = {
   eyeOpenL: 0.55, eyeOpenR: 1.25, eyeOffsetY: -0.25,
-  pupilOffX: 0.4, pupilOffY: -0.3,
+  pupilOffX: 0.4, pupilOffY: -0.3, xEyes: 0,
   mouthOpen: 0, smile: -0.15,
   tilt: 0.18, wriggle: 0.14,
   armRaise: 0, blush: 0,
-  squishY: 1.05, floatAmp: 0.6, floatSpeed: 0.7, driftAmp: 0.3,
+  squishY: 1.05, floatAmp: 0.6, floatSpeed: 0.7, driftAmp: 0.3, spinSpeed: 0,
 };
 const E_RESPONDING_A: Expr = {
   eyeOpenL: 1.1, eyeOpenR: 1.1, eyeOffsetY: 0.05,
-  pupilOffX: 0, pupilOffY: 0,
+  pupilOffX: 0, pupilOffY: 0, xEyes: 0,
   mouthOpen: 0.38, smile: 0,
   tilt: 0, wriggle: 0.42,
   armRaise: 0, blush: 0.2,
-  squishY: 1, floatAmp: 1.3, floatSpeed: 1.8, driftAmp: 0.4,
+  squishY: 1, floatAmp: 1.3, floatSpeed: 1.8, driftAmp: 0.4, spinSpeed: 0,
 };
 const E_RESPONDING_B: Expr = {
   eyeOpenL: 0.85, eyeOpenR: 0.85, eyeOffsetY: 0.05,
-  pupilOffX: 0, pupilOffY: 0,
+  pupilOffX: 0, pupilOffY: 0, xEyes: 0,
   mouthOpen: 0.78, smile: 0,
   tilt: 0, wriggle: 0.52,
   armRaise: 0, blush: 0.15,
-  squishY: 1.12, floatAmp: 1.3, floatSpeed: 1.8, driftAmp: 0.4,
+  squishY: 1.12, floatAmp: 1.3, floatSpeed: 1.8, driftAmp: 0.4, spinSpeed: 0,
 };
 const E_ALERT: Expr = {
-  eyeOpenL: 1.75, eyeOpenR: 1.75, eyeOffsetY: 0,
-  pupilOffX: 0, pupilOffY: 0.15,
-  mouthOpen: 0.6, smile: 0,
-  tilt: 0, wriggle: 0.68,
+  eyeOpenL: 0, eyeOpenR: 0, eyeOffsetY: 0,
+  pupilOffX: 0, pupilOffY: 0, xEyes: 1,
+  mouthOpen: 0.55, smile: 0,
+  tilt: 0, wriggle: 0.72,
   armRaise: 0, blush: 0,
-  squishY: 0.88, floatAmp: 2.0, floatSpeed: 2.5, driftAmp: 1.8,
+  squishY: 0.92, floatAmp: 1.8, floatSpeed: 2.2, driftAmp: 1.6, spinSpeed: 1.4,
 };
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -157,13 +161,14 @@ function rRect(
 
 // ── Ghost draw (all pixel coords) ─────────────────────────────────────────────
 function drawGhost(
-  ctx:   CanvasRenderingContext2D,
-  cx:    number,
-  cy:    number,
-  R:     number,  // head radius
-  t:     number,  // time counter (frames)
-  e:     Expr,
-  sr:    number, sg: number, sb: number,
+  ctx:        CanvasRenderingContext2D,
+  cx:         number,
+  cy:         number,
+  R:          number,  // head radius
+  t:          number,  // time counter (frames)
+  e:          Expr,
+  sr:         number, sg: number, sb: number,
+  spinAngle:  number,  // accumulated spin in radians
 ) {
   // Body geometry
   const sw    = t * 0.018;
@@ -186,9 +191,9 @@ function drawGhost(
   };
 
   ctx.save();
-  // Lean the ghost
+  // Lean + spin
   ctx.translate(cx, cy);
-  ctx.rotate(lean);
+  ctx.rotate(lean + spinAngle);
   ctx.translate(-cx, -cy);
 
   // ── Glow layers — 5 concentric expanding strokes ──
@@ -266,42 +271,54 @@ function drawGhost(
     const eyeOpen = side < 0 ? e.eyeOpenL : e.eyeOpenR;
     const eyeRY   = eyeRYbase * clamp(eyeOpen, 0.04, 1.8);
 
-    // Dark eye
-    ctx.fillStyle = "rgba(8, 14, 22, 0.93)";
-    ctx.beginPath();
-    ctx.ellipse(ex, eyeBaseY, eyeRX, eyeRY, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Pupil / iris tint
-    if (eyeOpen > 0.2) {
-      const pox = e.pupilOffX * eyeRX * 0.5;
-      const poy = e.pupilOffY * eyeRY * 0.5;
-      ctx.fillStyle = `rgba(${Math.floor(sr * 0.4)},${Math.floor(sg * 0.4)},${Math.floor(sb * 0.4)},0.6)`;
-      ctx.beginPath();
-      ctx.ellipse(ex + pox, eyeBaseY + poy, eyeRX * 0.56, eyeRY * 0.56, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Glint
-    if (eyeOpen > 0.25) {
-      ctx.fillStyle = "rgba(255,255,255,0.88)";
-      ctx.beginPath();
-      ctx.ellipse(
-        ex - eyeRX * 0.28, eyeBaseY - eyeRY * 0.28,
-        eyeRX * 0.26, eyeRY * 0.26,
-        -0.4, 0, Math.PI * 2,
-      );
-      ctx.fill();
-    }
-
-    // Happy-eyes — little curve below (UwU style) in idle
-    if (eyeOpen < 0.12 && e.smile > 0.3) {
-      ctx.strokeStyle = "rgba(8,14,22,0.85)";
-      ctx.lineWidth   = eyeRX * 0.45;
+    if (e.xEyes > 0.5) {
+      // ── X eyes (KO / error state) ──
+      const xS = eyeRX * 1.1 * e.xEyes;
+      ctx.strokeStyle = `rgba(8,14,22,${0.7 + e.xEyes * 0.25})`;
+      ctx.lineWidth   = R * 0.08;
       ctx.lineCap     = "round";
       ctx.beginPath();
-      ctx.arc(ex, eyeBaseY, eyeRX * 0.7, 0, Math.PI, false);
+      ctx.moveTo(ex - xS, eyeBaseY - xS); ctx.lineTo(ex + xS, eyeBaseY + xS);
+      ctx.moveTo(ex + xS, eyeBaseY - xS); ctx.lineTo(ex - xS, eyeBaseY + xS);
       ctx.stroke();
+    } else {
+      // ── Normal eyes ──
+      ctx.fillStyle = "rgba(8, 14, 22, 0.93)";
+      ctx.beginPath();
+      ctx.ellipse(ex, eyeBaseY, eyeRX, eyeRY, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Pupil / iris tint
+      if (eyeOpen > 0.2) {
+        const pox = e.pupilOffX * eyeRX * 0.5;
+        const poy = e.pupilOffY * eyeRY * 0.5;
+        ctx.fillStyle = `rgba(${Math.floor(sr * 0.4)},${Math.floor(sg * 0.4)},${Math.floor(sb * 0.4)},0.6)`;
+        ctx.beginPath();
+        ctx.ellipse(ex + pox, eyeBaseY + poy, eyeRX * 0.56, eyeRY * 0.56, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Glint
+      if (eyeOpen > 0.25) {
+        ctx.fillStyle = "rgba(255,255,255,0.88)";
+        ctx.beginPath();
+        ctx.ellipse(
+          ex - eyeRX * 0.28, eyeBaseY - eyeRY * 0.28,
+          eyeRX * 0.26, eyeRY * 0.26,
+          -0.4, 0, Math.PI * 2,
+        );
+        ctx.fill();
+      }
+
+      // Happy-eyes — arc below (UwU) when blinking in idle
+      if (eyeOpen < 0.12 && e.smile > 0.3) {
+        ctx.strokeStyle = "rgba(8,14,22,0.85)";
+        ctx.lineWidth   = eyeRX * 0.45;
+        ctx.lineCap     = "round";
+        ctx.beginPath();
+        ctx.arc(ex, eyeBaseY, eyeRX * 0.7, 0, Math.PI, false);
+        ctx.stroke();
+      }
     }
   }
 
@@ -436,6 +453,7 @@ export function GhostFace({
     let alertOffX    = 0, alertOffY = 0;
     let alertVX      = (Math.random() - 0.5) * 2;
     let alertVY      = (Math.random() - 0.5) * 2;
+    let spinAngle    = 0;
 
     // Particles (reasoning mode)
     const particles: Particle[] = [];
@@ -521,6 +539,9 @@ export function GhostFace({
           alertOffY *= 0.92;
         }
 
+        // Spin — accumulate angle based on expr.spinSpeed (rotations/sec at 60fps)
+        spinAngle += (expr.spinSpeed * Math.PI * 2) / 60;
+
         const ghostCX = cx + floatX + orientX + alertOffX;
         const ghostCY = cy + floatY + orientY + alertOffY;
 
@@ -571,7 +592,7 @@ export function GhostFace({
         }
 
         // ── Draw ghost ─────────────────────────────────────────────────────
-        drawGhost(ctx, ghostCX, ghostCY, R, frame, expr, sr, sg, sb);
+        drawGhost(ctx, ghostCX, ghostCY, R, frame, expr, sr, sg, sb, spinAngle);
 
         // ── Scanlines ──────────────────────────────────────────────────────
         ctx.globalAlpha = 0.018;
