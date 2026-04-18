@@ -318,8 +318,8 @@ function drawGhost(
   }
 
   // ── Mouth ──
-  const mouthCY = cy + R * 0.30;
-  const mouthW  = R * 0.28;
+  const mouthCY = cy + R * 0.44;   // well clear of the eyes
+  const mouthW  = R * 0.30;
 
   if (e.mouthOpen > 0.06) {
     const mH = R * 0.22 * e.mouthOpen;
@@ -338,24 +338,15 @@ function drawGhost(
       ctx.fill();
     }
   } else {
-    // Smile / frown arc
-    ctx.strokeStyle = "rgba(8,14,22,0.78)";
-    ctx.lineWidth   = R * 0.068;
+    // Smile / frown — quadratic bezier, no arc math needed
+    // Positive smile = control point below endpoints = upward curve on face
+    const depth = mouthW * 0.62 * e.smile;
+    ctx.strokeStyle = "rgba(8,14,22,0.80)";
+    ctx.lineWidth   = R * 0.072;
     ctx.lineCap     = "round";
     ctx.beginPath();
-    if (Math.abs(e.smile) < 0.08) {
-      ctx.moveTo(cx - mouthW, mouthCY);
-      ctx.lineTo(cx + mouthW, mouthCY);
-    } else {
-      const arcR = mouthW / Math.abs(e.smile) * 1.1;
-      const arcY = mouthCY - e.smile * arcR * 0.5;
-      const halfAngle = Math.asin(clamp(mouthW / arcR, -1, 1));
-      ctx.arc(
-        cx, arcY, arcR,
-        Math.PI + halfAngle, -halfAngle,
-        e.smile < 0,
-      );
-    }
+    ctx.moveTo(cx - mouthW, mouthCY);
+    ctx.quadraticCurveTo(cx, mouthCY + depth, cx + mouthW, mouthCY);
     ctx.stroke();
   }
 
