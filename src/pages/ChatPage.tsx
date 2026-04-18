@@ -5,7 +5,7 @@ import { useSpeechInput } from "@/hooks/useSpeechInput";
 import { useTTS } from "@/hooks/useTTS";
 import { useWeather } from "@/hooks/useWeather";
 import { useTelegramOrientation } from "@/hooks/useTelegramSensors";
-import { MatrixFace } from "@/components/MatrixFace";
+import { GhostFace } from "@/components/GhostFace";
 import {
   haptic,
   loadPreference,
@@ -164,7 +164,7 @@ export function ChatPage() {
     <div className="flex flex-col h-full">
       {/* Header: MatrixFace */}
       <div className="px-2 pt-1 pb-2 border-b border-white/8">
-        <MatrixFace
+        <GhostFace
           agentState={agentState}
           activeTool={activeTool}
           tokenCount={tokenCount}
