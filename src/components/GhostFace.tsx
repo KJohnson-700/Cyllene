@@ -108,7 +108,7 @@ const E_ALERT: Expr = {
   pupilOffX: 0, pupilOffY: 0.15,
   mouthOpen: 0.6, smile: 0,
   tilt: 0, wriggle: 0.68,
-  armRaise: 1, blush: 0,
+  armRaise: 0, blush: 0,
   squishY: 0.88, floatAmp: 2.0, floatSpeed: 2.5, driftAmp: 1.8,
 };
 
