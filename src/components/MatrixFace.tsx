@@ -7,751 +7,589 @@ interface Props {
   tokenCount?: number;
   amplitude?: number;
   weather?: { condition: string; temp: number } | null;
-  /** Smoothed device orientation for dynamic light source shift. */
   orientation?: { beta: number; gamma: number } | null;
-  /** Tap handler — e.g. to toggle fullscreen from parent. */
   onDoubleTap?: () => void;
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const CHARS =
   "ｦｧｨｩｪｫｬｭｮｯｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ" +
-  "0123456789ABCDEF@#$%&*+=<>|/\\";
+  "0123456789ABCDEF@#$%&*+=<>|";
+const COLS = 72;
+const ROWS = 90;
 
-const COLS = 64;
-const ROWS = 80;
-const ATLAS_COLS = 12;
-const ATLAS_ROWS = 8;               // 96 slots, we have ~95 chars
-const ATLAS_CELL = 48;              // px per char in atlas
-
-const STATE_HUE: Record<AgentState, [number, number, number]> = {
-  idle:       [0.00, 1.00, 0.40],
-  reasoning:  [0.25, 0.95, 0.85],
-  responding: [0.00, 0.90, 1.00],
-  alert:      [1.00, 0.20, 0.20],
+// State → [r, g, b] 0-255
+const STATE_RGB: Record<AgentState, [number, number, number]> = {
+  idle:       [0,   255, 100],
+  reasoning:  [60,  230, 210],
+  responding: [0,   200, 255],
+  alert:      [255,  50,  50],
 };
 
-// ── Character atlas ──────────────────────────────────────────────────────────
-function buildCharAtlas(): HTMLCanvasElement {
-  const cvs = document.createElement("canvas");
-  cvs.width  = ATLAS_COLS * ATLAS_CELL;
-  cvs.height = ATLAS_ROWS * ATLAS_CELL;
-  const ctx = cvs.getContext("2d")!;
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, cvs.width, cvs.height);
-  ctx.font = `bold ${Math.floor(ATLAS_CELL * 0.78)}px 'Courier New', monospace`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillStyle = "#fff";
-  for (let i = 0; i < CHARS.length && i < ATLAS_COLS * ATLAS_ROWS; i++) {
-    const col = i % ATLAS_COLS;
-    const row = Math.floor(i / ATLAS_COLS);
-    const cx = col * ATLAS_CELL + ATLAS_CELL / 2;
-    const cy = row * ATLAS_CELL + ATLAS_CELL / 2 + 1;
-    ctx.fillText(CHARS[i], cx, cy);
-  }
-  return cvs;
-}
-
-// ── Shaders ───────────────────────────────────────────────────────────────────
-const VERT = `#version 300 es
-in vec2 aPos;
-out vec2 vUV;
-void main() {
-  vUV = aPos * 0.5 + 0.5;
-  gl_Position = vec4(aPos, 0.0, 1.0);
-}`;
-
-const FRAG = `#version 300 es
-precision highp float;
-
-in vec2 vUV;
-out vec4 outColor;
-
-uniform sampler2D uAtlas;
-uniform sampler2D uGrid;      // per-cell char index (R channel)
-uniform sampler2D uHeads;     // per-column head pos (R channel, 0..1 of ROWS+14)
-
-uniform float uTime;
-uniform float uAspect;
-uniform vec4 uExprA;    // mouthOpen, mouthRound, eyeOpenness, browFurrow
-uniform vec4 uExprB;    // browHeight, smileAmt, browSplit, blink
-uniform vec3 uStateColor;
-uniform float uAlert;   // 0..1 red tint
-uniform vec2 uLightShift; // orientation-driven light offset
-uniform float uReasoningGlow; // 0..1 for reasoning state inner glow
-
-const float COLS = ${COLS}.0;
-const float ROWS = ${ROWS}.0;
-const float ATLAS_COLS = ${ATLAS_COLS}.0;
-const float ATLAS_ROWS = ${ATLAS_ROWS}.0;
-
-// ── Face geometry (anatomical) ─────────────────────────────────────────────
-float faceZ(vec2 n) {
-  float skullW = 0.81 + 0.055 * exp(-pow(n.y - 0.05, 2.0) / 0.30);
-  float sphere = 1.0 - pow(n.x / skullW, 2.0) - pow(n.y / 1.045, 2.0);
-  if (sphere <= 0.0) return 0.0;
-  float z = sqrt(sphere) * 0.91;
+// ── Anatomical face ────────────────────────────────────────────────────────────
+function faceZ(nx: number, ny: number): number {
+  const skullW = 0.82 + 0.055 * Math.exp(-(ny - 0.04) * (ny - 0.04) / 0.30);
+  const sphere = 1 - (nx / skullW) ** 2 - (ny / 1.05) ** 2;
+  if (sphere <= 0) return 0;
+  let z = Math.sqrt(sphere) * 0.92;
 
   // Temple hollows
-  float tdL = length(vec2((n.x + 0.55) * 1.85, (n.y + 0.04) * 2.3));
-  float tdR = length(vec2((n.x - 0.55) * 1.85, (n.y + 0.04) * 2.3));
-  if (tdL < 0.42) z -= pow((0.42 - tdL) / 0.42, 1.6) * 0.10;
-  if (tdR < 0.42) z -= pow((0.42 - tdR) / 0.42, 1.6) * 0.10;
-
-  // Forehead recedes
-  if (n.y < -0.40) z *= 1.0 - ((-n.y - 0.40) / 0.62) * 0.09;
+  for (const tx of [-0.56, 0.56]) {
+    const d = Math.hypot((nx - tx) * 1.8, (ny + 0.04) * 2.3);
+    if (d < 0.42) z -= Math.pow((0.42 - d) / 0.42, 1.6) * 0.11;
+  }
+  // Forehead recession
+  if (ny < -0.40) z *= 1 - ((-ny - 0.40) / 0.62) * 0.09;
 
   // Brow ridge
-  float browCY = -0.25;
-  if (n.y > browCY - 0.14 && n.y < browCY + 0.09 && abs(n.x) < 0.52) {
-    float ty = (n.y - browCY) / 0.14;
-    float tx2 = pow(n.x / 0.48, 2.0);
-    z += exp(-ty * ty * 2.3) * exp(-tx2 * 1.2) * 0.14;
+  const bcy = -0.25;
+  if (ny > bcy - 0.14 && ny < bcy + 0.09 && Math.abs(nx) < 0.52) {
+    const ty = (ny - bcy) / 0.14;
+    const txb = nx / 0.48; z += Math.exp(-ty * ty * 2.3) * Math.exp(-txb * txb * 1.2) * 0.14;
   }
-
   // Eye sockets
-  float edL = length(vec2((n.x + 0.265) * 2.45, (n.y + 0.105) * 3.15));
-  float edR = length(vec2((n.x - 0.265) * 2.45, (n.y + 0.105) * 3.15));
-  if (edL < 0.40) z -= pow((0.40 - edL) / 0.40, 1.1) * 0.22;
-  if (edR < 0.40) z -= pow((0.40 - edR) / 0.40, 1.1) * 0.22;
-
-  // Nose bridge + tip
-  float nbD = length(vec2(n.x * 5.9, (n.y - 0.09) * 4.6));
-  if (nbD < 0.40) z += pow((0.40 - nbD) / 0.40, 0.75) * 0.24;
-  float ntD = length(vec2(n.x * 5.1, (n.y - 0.34) * 6.1));
-  if (ntD < 0.27) z += ((0.27 - ntD) / 0.27) * 0.17;
-  // Nostril wings
-  float nwL = length(vec2((n.x + 0.13) * 5.1, (n.y - 0.39) * 7.6));
-  float nwR = length(vec2((n.x - 0.13) * 5.1, (n.y - 0.39) * 7.6));
-  if (nwL < 0.19) z -= ((0.19 - nwL) / 0.19) * 0.06;
-  if (nwR < 0.19) z -= ((0.19 - nwR) / 0.19) * 0.06;
-
+  for (const ex of [-0.265, 0.265]) {
+    const d = Math.hypot((nx - ex) * 2.45, (ny + 0.105) * 3.15);
+    if (d < 0.40) z -= Math.pow((0.40 - d) / 0.40, 1.1) * 0.23;
+  }
+  // Nose bridge
+  const nb = Math.hypot(nx * 5.9, (ny - 0.09) * 4.6);
+  if (nb < 0.40) z += Math.pow((0.40 - nb) / 0.40, 0.75) * 0.25;
+  // Nose tip
+  const nt = Math.hypot(nx * 5.1, (ny - 0.34) * 6.1);
+  if (nt < 0.27) z += ((0.27 - nt) / 0.27) * 0.18;
+  // Nostril recession
+  for (const nw of [-0.13, 0.13]) {
+    const d = Math.hypot((nx - nw) * 5.1, (ny - 0.39) * 7.6);
+    if (d < 0.19) z -= ((0.19 - d) / 0.19) * 0.06;
+  }
   // Cheekbones
-  float cdL = length(vec2((n.x + 0.44) * 2.1, (n.y - 0.08) * 2.7));
-  float cdR = length(vec2((n.x - 0.44) * 2.1, (n.y - 0.08) * 2.7));
-  if (cdL < 0.36) z += pow((0.36 - cdL) / 0.36, 1.2) * 0.12;
-  if (cdR < 0.36) z += pow((0.36 - cdR) / 0.36, 1.2) * 0.12;
-
+  for (const cx of [-0.44, 0.44]) {
+    const d = Math.hypot((nx - cx) * 2.1, (ny - 0.08) * 2.7);
+    if (d < 0.36) z += Math.pow((0.36 - d) / 0.36, 1.2) * 0.12;
+  }
   // Philtrum
-  float phD = length(vec2(n.x * 7.6, (n.y - 0.43) * 10.2));
-  if (phD < 0.21) z -= ((0.21 - phD) / 0.21) * 0.045;
-
-  // Lip ridge
-  float lipD = length(vec2(n.x * 2.7, (n.y - 0.49) * 5.4));
-  if (lipD < 0.27) z += ((0.27 - lipD) / 0.27) * 0.12;
-
+  const ph = Math.hypot(nx * 7.6, (ny - 0.43) * 10.2);
+  if (ph < 0.21) z -= ((0.21 - ph) / 0.21) * 0.05;
+  // Lips
+  const lip = Math.hypot(nx * 2.7, (ny - 0.49) * 5.4);
+  if (lip < 0.27) z += ((0.27 - lip) / 0.27) * 0.13;
   // Chin
-  float chD = length(vec2(n.x * 4.1, (n.y - 0.70) * 5.2));
-  if (chD < 0.25) z += ((0.25 - chD) / 0.25) * 0.13;
+  const ch = Math.hypot(nx * 4.1, (ny - 0.70) * 5.2);
+  if (ch < 0.25) z += ((0.25 - ch) / 0.25) * 0.14;
 
-  return max(0.0, z);
+  return Math.max(0, z);
 }
 
-vec3 L1vec() {
-  vec3 v = vec3(-0.44 + uLightShift.x, -0.60 + uLightShift.y, 0.67);
-  return normalize(v);
-}
-const vec3 L2 = vec3(0.52, -0.12, 0.85);
+// Primary light (upper-left) + fill (right)
+const _l1 = [-0.44, -0.60, 0.67], _l1n = Math.hypot(..._l1);
+const L1x = _l1[0]/_l1n, L1y = _l1[1]/_l1n, L1z = _l1[2]/_l1n;
+const _l2 = [0.52, -0.12, 0.85], _l2n = Math.hypot(..._l2);
+const L2x = _l2[0]/_l2n, L2y = _l2[1]/_l2n, L2z = _l2[2]/_l2n;
 
-float faceLighting(vec2 n) {
-  float z = faceZ(n);
-  if (z <= 0.0) return 0.0;
-  float eps = 0.012;
-  float dzdx = (faceZ(vec2(n.x + eps, n.y)) - faceZ(vec2(n.x - eps, n.y))) / (2.0 * eps);
-  float dzdy = (faceZ(vec2(n.x, n.y + eps)) - faceZ(vec2(n.x, n.y - eps))) / (2.0 * eps);
-  vec3 normal = normalize(vec3(-dzdx, -dzdy, 1.0));
+function faceLighting(nx: number, ny: number, lxShift = 0, lyShift = 0): number {
+  const z = faceZ(nx, ny);
+  if (z <= 0) return 0;
+  const eps = 0.013;
+  const dzdx = (faceZ(nx + eps, ny) - faceZ(nx - eps, ny)) / (2 * eps);
+  const dzdy = (faceZ(nx, ny + eps) - faceZ(nx, ny - eps)) / (2 * eps);
+  const nl = Math.hypot(dzdx, dzdy, 1);
+  const snx = -dzdx / nl, sny = -dzdy / nl, snz = 1 / nl;
 
-  vec3 L1 = L1vec();
-  vec3 L2n = normalize(L2);
-
-  float diff1 = max(0.0, dot(L1, normal));
-  float diff2 = max(0.0, dot(L2n, normal)) * 0.22;
+  const l1xS = L1x + lxShift, l1yS = L1y + lyShift;
+  const l1len = Math.hypot(l1xS, l1yS, L1z);
+  const diff1 = Math.max(0, (l1xS/l1len)*snx + (l1yS/l1len)*sny + L1z*snz/l1len);
+  const diff2 = Math.max(0, L2x*snx + L2y*sny + L2z*snz) * 0.22;
 
   // Blinn-Phong specular
-  vec3 H = normalize(L1 + vec3(0.0, 0.0, 1.0));
-  float spec = pow(max(0.0, dot(normal, H)), 38.0) * 0.80;
+  const hx = l1xS/l1len, hy = l1yS/l1len, hz = (L1z/l1len + 1);
+  const hl = Math.hypot(hx, hy, hz);
+  const spec = Math.pow(Math.max(0, hx/hl*snx + hy/hl*sny + hz/hl*snz), 38) * 0.80;
+  // Rim
+  const rim = Math.pow(Math.max(0, 1 - snz), 3) * 0.12;
 
-  // Rim light (back lighting on silhouette edges)
-  float rim = pow(1.0 - max(0.0, normal.z), 3.0) * 0.15;
-
-  return clamp(0.03 + diff1 * 0.95 + diff2 + spec + rim, 0.0, 1.0);
+  return Math.min(1, 0.03 + diff1 * 0.95 + diff2 + spec + rim);
 }
 
-float applyExpression(vec2 n, float baseLight) {
-  float light = baseLight;
+// ── Pre-computed cell table ────────────────────────────────────────────────────
+interface Cell { onFace: boolean; baseLight: number; nx: number; ny: number; depth: number }
 
-  // Eye openness
-  float sdL = length(vec2((n.x + 0.265) / 0.20, (n.y + 0.105) / 0.155));
-  float sdR = length(vec2((n.x - 0.265) / 0.20, (n.y + 0.105) / 0.155));
-  if (sdL < 1.0) {
-    float inner = 1.0 - sdL;
-    light += inner * (1.0 - uExprA.z) * 0.34;
-    light -= inner * max(0.0, uExprA.z - 1.0) * 0.22;
-  }
-  if (sdR < 1.0) {
-    float inner = 1.0 - sdR;
-    light += inner * (1.0 - uExprA.z) * 0.34;
-    light -= inner * max(0.0, uExprA.z - 1.0) * 0.22;
-  }
-
-  // Pupils: bright highlight when eyes open
-  if (uExprA.z > 0.85) {
-    float pL = length(vec2((n.x + 0.265) / 0.035, (n.y + 0.10) / 0.035));
-    float pR = length(vec2((n.x - 0.265) / 0.035, (n.y + 0.10) / 0.035));
-    if (pL < 1.0) light += (1.0 - pL) * (uExprA.z - 0.85) * 0.6;
-    if (pR < 1.0) light += (1.0 - pR) * (uExprA.z - 0.85) * 0.6;
-  }
-
-  // Brow furrow
-  float browY = -0.26 + uExprB.x * 0.09;
-  float bxSq = n.x * n.x / 0.012;
-  float bySq = pow(n.y - browY, 2.0) / 0.0038;
-  if (bxSq < 9.0 && bySq < 9.0) {
-    light -= exp(-bxSq) * exp(-bySq) * uExprA.w * 0.50;
-  }
-
-  // Brow split (inner raise for angry look)
-  float bsL = length(vec2((n.x + 0.14) / 0.13, (n.y - browY - 0.07) / 0.065));
-  float bsR = length(vec2((n.x - 0.14) / 0.13, (n.y - browY - 0.07) / 0.065));
-  if (bsL < 1.0) light += (1.0 - bsL) * uExprB.z * 0.18;
-  if (bsR < 1.0) light += (1.0 - bsR) * uExprB.z * 0.18;
-
-  // Mouth cavity
-  float mRx = 0.22 * (1.0 - uExprA.y * 0.32);
-  float mRy = 0.052 + uExprA.x * 0.20 + uExprA.y * 0.075;
-  float mD = length(vec2(n.x / mRx, (n.y - 0.49) / mRy));
-  if (mD < 1.0) light -= (1.0 - mD) * uExprA.x * 0.98;
-
-  // Teeth (rim of mouth)
-  if (uExprA.x > 0.18) {
-    float tD = length(vec2(n.x / (mRx * 0.72), (n.y - 0.455) / (mRy * 0.34)));
-    if (tD < 1.0) light += (1.0 - tD) * (uExprA.x - 0.18) * 0.46;
-  }
-
-  // Smile corners
-  float lcL = length(vec2((n.x + 0.175) / 0.068, (n.y - 0.465) / 0.048));
-  float lcR = length(vec2((n.x - 0.175) / 0.068, (n.y - 0.465) / 0.048));
-  if (lcL < 1.0) light += (1.0 - lcL) * uExprB.y * 0.26;
-  if (lcR < 1.0) light += (1.0 - lcR) * uExprB.y * 0.26;
-
-  return clamp(light, 0.0, 1.0);
+function buildCells(gW: number, gH: number, lxShift = 0, lyShift = 0): Cell[] {
+  const aspect = (gW / gH) * 0.94;
+  return Array.from({ length: ROWS * COLS }, (_, i) => {
+    const r = Math.floor(i / COLS), c = i % COLS;
+    const nx = ((c / (COLS - 1)) * 2 - 1) * aspect;
+    const ny = (r / (ROWS - 1)) * 2 - 1;
+    const depth = faceZ(nx, ny);
+    const onFace = depth > 0;
+    return { onFace, baseLight: onFace ? faceLighting(nx, ny, lxShift, lyShift) : 0, nx, ny, depth };
+  });
 }
 
-void main() {
-  vec2 uv = vUV;
-  uv.y = 1.0 - uv.y;
-
-  // Cell
-  vec2 cellUV = uv * vec2(COLS, ROWS);
-  vec2 cellIdx = floor(cellUV);
-  vec2 cellLocal = fract(cellUV);
-
-  // Face normalized coords at cell centre
-  vec2 cellCenter = (cellIdx + 0.5) / vec2(COLS, ROWS);
-  vec2 n = (cellCenter * 2.0 - 1.0) * vec2(uAspect, 1.0);
-
-  // Lighting
-  float fBase = faceLighting(n);
-  float fDepth = faceZ(n);
-  bool onFace = fDepth > 0.0;
-  float fBrite = applyExpression(n, fBase);
-
-  // Rain head
-  float headSample = texture(uHeads, vec2((cellIdx.x + 0.5) / COLS, 0.5)).r;
-  float colHead = headSample * (ROWS + 14.0) - 4.0;
-  float headDist = colHead - cellIdx.y;
-  float rainBrite;
-  if (headDist >= 0.0 && headDist < 1.0) rainBrite = 1.0;
-  else if (headDist < 0.0 || headDist >= 16.0) rainBrite = 0.015;
-  else rainBrite = exp(-headDist * 0.36);
-
-  // Composite — face hard-dominates, background very dim
-  float finalBrite;
-  if (fBrite > 0.14) finalBrite = fBrite * 1.0 + rainBrite * 0.08;
-  else if (fBrite > 0.03) finalBrite = fBrite * 0.62 + rainBrite * 0.18;
-  else finalBrite = rainBrite * 0.16 + 0.004;
-  finalBrite = clamp(finalBrite, 0.0, 1.0);
-
-  // Character sample
-  float charIdx = floor(texture(uGrid, cellCenter).r * 255.0 + 0.5);
-  float aCol = mod(charIdx, ATLAS_COLS);
-  float aRow = floor(charIdx / ATLAS_COLS);
-  vec2 atlasUV = (vec2(aCol, aRow) + cellLocal) / vec2(ATLAS_COLS, ATLAS_ROWS);
-  float charMask = texture(uAtlas, atlasUV).r;
-
-  // Base colour with depth tint
-  float dt = onFace ? clamp(fDepth * 0.7, 0.0, 1.0) : 0.0;
-  vec3 baseCol = uStateColor;
-  if (uAlert < 0.5) {
-    baseCol.r += dt * 0.25;
-    baseCol.b -= dt * 0.15;
-  }
-
-  // Bloom: bright face cells glow additively
-  float bloomK = smoothstep(0.50, 0.95, fBrite) * 0.9;
-  vec3 bloomCol = baseCol * bloomK;
-
-  // Reasoning inner glow
-  float rG = uReasoningGlow * smoothstep(0.35, 0.85, fBrite);
-  bloomCol += vec3(0.0, 0.6, 1.0) * rG * 0.4;
-
-  // Final
-  vec3 col = (baseCol * finalBrite + bloomCol) * charMask;
-
-  // Background ambient glow (very subtle)
-  if (!onFace) {
-    col += baseCol * rainBrite * 0.04 * charMask;
-  }
-
-  float alpha = charMask * clamp(finalBrite * 1.6 + bloomK * 0.5, 0.0, 1.0);
-
-  // Scanlines
-  float sl = 0.92 + 0.08 * sin(gl_FragCoord.y * 1.1);
-  col *= sl;
-
-  // Vignette
-  vec2 vpos = uv * 2.0 - 1.0;
-  float vig = 1.0 - dot(vpos, vpos) * 0.35;
-  col *= vig;
-
-  outColor = vec4(col, alpha);
-}`;
-
-// ── GL helpers ────────────────────────────────────────────────────────────────
-function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLShader {
-  const sh = gl.createShader(type)!;
-  gl.shaderSource(sh, src);
-  gl.compileShader(sh);
-  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
-    console.error(gl.getShaderInfoLog(sh));
-    throw new Error("shader compile");
-  }
-  return sh;
-}
-
-function link(gl: WebGL2RenderingContext, v: WebGLShader, f: WebGLShader): WebGLProgram {
-  const p = gl.createProgram()!;
-  gl.attachShader(p, v);
-  gl.attachShader(p, f);
-  gl.linkProgram(p);
-  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
-    console.error(gl.getProgramInfoLog(p));
-    throw new Error("program link");
-  }
-  return p;
-}
-
-// ── Expression system (CPU-side, lerped each frame) ──────────────────────────
+// ── Expressions ───────────────────────────────────────────────────────────────
 interface Expr {
-  mouthOpen: number; mouthRound: number; eyeOpenness: number; browFurrow: number;
-  browHeight: number; smileAmt: number; browSplit: number;
+  mouthOpen: number; mouthRound: number; eyeOpenness: number;
+  browFurrow: number; browHeight: number; smileAmt: number; browSplit: number;
 }
-const E_IDLE: Expr      = { mouthOpen:0.06, mouthRound:0,    eyeOpenness:0.95, browFurrow:0,    browHeight:0,     smileAmt:0.55, browSplit:0   };
-const E_REASONING: Expr = { mouthOpen:0,    mouthRound:0,    eyeOpenness:0.52, browFurrow:1.0,  browHeight:-0.16, smileAmt:0,    browSplit:0.9 };
-const E_TALK_A: Expr    = { mouthOpen:0.32, mouthRound:0,    eyeOpenness:1.0,  browFurrow:0,    browHeight:0.03,  smileAmt:0.3,  browSplit:0   };
-const E_TALK_B: Expr    = { mouthOpen:0.60, mouthRound:0,    eyeOpenness:0.94, browFurrow:0.08, browHeight:0,     smileAmt:0.15, browSplit:0.1 };
-const E_TALK_C: Expr    = { mouthOpen:0.54, mouthRound:0.78, eyeOpenness:1.1,  browFurrow:0,    browHeight:0.07,  smileAmt:0.1,  browSplit:0   };
-const E_TALK_D: Expr    = { mouthOpen:0.44, mouthRound:1.0,  eyeOpenness:1.0,  browFurrow:0,    browHeight:0,     smileAmt:0,    browSplit:0   };
-const E_ALERT: Expr     = { mouthOpen:0.24, mouthRound:0.2,  eyeOpenness:1.52, browFurrow:0.3,  browHeight:0.22,  smileAmt:0,    browSplit:0.4 };
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const lerpE = (a: Expr, b: Expr, t: number): Expr => ({
+  mouthOpen:   lerp(a.mouthOpen,   b.mouthOpen,   t),
+  mouthRound:  lerp(a.mouthRound,  b.mouthRound,  t),
+  eyeOpenness: lerp(a.eyeOpenness, b.eyeOpenness, t),
+  browFurrow:  lerp(a.browFurrow,  b.browFurrow,  t),
+  browHeight:  lerp(a.browHeight,  b.browHeight,  t),
+  smileAmt:    lerp(a.smileAmt,    b.smileAmt,    t),
+  browSplit:   lerp(a.browSplit,   b.browSplit,    t),
+});
+
+const E_IDLE:      Expr = { mouthOpen:0.05, mouthRound:0,    eyeOpenness:0.95, browFurrow:0,    browHeight:0,     smileAmt:0.55, browSplit:0   };
+const E_REASONING: Expr = { mouthOpen:0,    mouthRound:0,    eyeOpenness:0.50, browFurrow:1.0,  browHeight:-0.16, smileAmt:0,    browSplit:0.9 };
+const E_TALK_A:    Expr = { mouthOpen:0.32, mouthRound:0,    eyeOpenness:1.0,  browFurrow:0,    browHeight:0.03,  smileAmt:0.3,  browSplit:0   };
+const E_TALK_B:    Expr = { mouthOpen:0.62, mouthRound:0,    eyeOpenness:0.94, browFurrow:0.08, browHeight:0,     smileAmt:0.15, browSplit:0.1 };
+const E_TALK_C:    Expr = { mouthOpen:0.55, mouthRound:0.80, eyeOpenness:1.1,  browFurrow:0,    browHeight:0.07,  smileAmt:0.1,  browSplit:0   };
+const E_TALK_D:    Expr = { mouthOpen:0.45, mouthRound:1.0,  eyeOpenness:1.0,  browFurrow:0,    browHeight:0,     smileAmt:0,    browSplit:0   };
+const E_ALERT:     Expr = { mouthOpen:0.26, mouthRound:0.2,  eyeOpenness:1.55, browFurrow:0.3,  browHeight:0.24,  smileAmt:0,    browSplit:0.4 };
 const TALK_FRAMES = [E_TALK_A, E_TALK_B, E_TALK_C, E_TALK_D];
 
-function lerpExpr(a: Expr, b: Expr, t: number): Expr {
-  const L = (x: number, y: number) => x + (y - x) * t;
-  return {
-    mouthOpen: L(a.mouthOpen, b.mouthOpen),
-    mouthRound: L(a.mouthRound, b.mouthRound),
-    eyeOpenness: L(a.eyeOpenness, b.eyeOpenness),
-    browFurrow: L(a.browFurrow, b.browFurrow),
-    browHeight: L(a.browHeight, b.browHeight),
-    smileAmt: L(a.smileAmt, b.smileAmt),
-    browSplit: L(a.browSplit, b.browSplit),
-  };
+function applyExpr(cell: Cell, e: Expr): number {
+  if (!cell.onFace) return 0;
+  let l = cell.baseLight;
+  const { nx, ny } = cell;
+
+  // Eyes
+  for (const ex of [-0.265, 0.265]) {
+    const sd = Math.hypot((nx - ex) / 0.20, (ny + 0.105) / 0.155);
+    if (sd < 1) {
+      const inner = 1 - sd;
+      l += inner * (1 - e.eyeOpenness) * 0.34;
+      l -= inner * Math.max(0, e.eyeOpenness - 1) * 0.20;
+    }
+  }
+  // Pupil glint
+  if (e.eyeOpenness > 0.85) {
+    for (const ex of [-0.265, 0.265]) {
+      const pd = Math.hypot((nx - ex) / 0.032, (ny + 0.10) / 0.032);
+      if (pd < 1) l += (1 - pd) * (e.eyeOpenness - 0.85) * 0.65;
+    }
+  }
+  // Brow furrow
+  const browY = -0.26 + e.browHeight * 0.09;
+  const bx2 = nx * nx / 0.012, by2 = (ny - browY) ** 2 / 0.0038;
+  if (bx2 < 9 && by2 < 9) l -= Math.exp(-bx2) * Math.exp(-by2) * e.browFurrow * 0.52;
+  // Brow split
+  if (e.browSplit > 0) {
+    for (const bsx of [-0.14, 0.14]) {
+      const sd2 = Math.hypot((nx - bsx) / 0.13, (ny - browY - 0.07) / 0.065);
+      if (sd2 < 1) l += (1 - sd2) * e.browSplit * 0.18;
+    }
+  }
+  // Mouth
+  const mRx = 0.22 * (1 - e.mouthRound * 0.32);
+  const mRy = 0.052 + e.mouthOpen * 0.20 + e.mouthRound * 0.075;
+  const mD = Math.hypot(nx / mRx, (ny - 0.49) / mRy);
+  if (mD < 1) l -= (1 - mD) * e.mouthOpen * 0.98;
+  // Teeth
+  if (e.mouthOpen > 0.18) {
+    const tD = Math.hypot(nx / (mRx * 0.72), (ny - 0.455) / (mRy * 0.34));
+    if (tD < 1) l += (1 - tD) * (e.mouthOpen - 0.18) * 0.48;
+  }
+  // Smile
+  for (const lx of [-0.175, 0.175]) {
+    const lcd = Math.hypot((nx - lx) / 0.068, (ny - 0.465) / 0.048);
+    if (lcd < 1) l += (1 - lcd) * e.smileAmt * 0.28;
+  }
+  return Math.max(0, Math.min(1, l));
 }
 
-function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
+// ── Rain columns ───────────────────────────────────────────────────────────────
+interface Col { chars: string[]; ages: Uint8Array; head: number; speed: number }
+function makeCols(): Col[] {
+  return Array.from({ length: COLS }, () => ({
+    chars: Array.from({ length: ROWS }, () => CHARS[Math.floor(Math.random() * CHARS.length)]),
+    ages: new Uint8Array(ROWS),
+    head: Math.random() * ROWS,
+    speed: 0.3 + Math.random() * 1.0,
+  }));
+}
+
+const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export function MatrixFace({
   agentState, activeTool, tokenCount = 0, amplitude = 0, weather,
   orientation, onDoubleTap,
 }: Props) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const propsRef = useRef({ agentState, activeTool, tokenCount, amplitude, weather, orientation });
+  const canvasRef  = useRef<HTMLCanvasElement>(null);
+  const propsRef   = useRef({ agentState, activeTool, tokenCount, amplitude, weather, orientation });
   propsRef.current = { agentState, activeTool, tokenCount, amplitude, weather, orientation };
-  const prevState = useRef<AgentState>(agentState);
-  const lastTapRef = useRef(0);
+  const prevState  = useRef<AgentState>(agentState);
+  const lastTap    = useRef(0);
 
-  // Haptic on state change
+  // Haptics on state change
   useEffect(() => {
     if (agentState === prevState.current) return;
     prevState.current = agentState;
-    const tg = (window as any).Telegram?.WebApp?.HapticFeedback;
-    if (!tg) return;
-    if (agentState === "alert") tg.notificationOccurred?.("error");
-    else if (agentState === "reasoning") tg.impactOccurred?.("soft");
-    else if (agentState === "responding") tg.impactOccurred?.("light");
+    const hf = (window as any).Telegram?.WebApp?.HapticFeedback;
+    if (!hf) return;
+    if (agentState === "alert")      hf.notificationOccurred?.("error");
+    else if (agentState === "reasoning")  hf.impactOccurred?.("soft");
+    else if (agentState === "responding") hf.impactOccurred?.("light");
   }, [agentState]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: false, antialias: false });
-    if (!gl) {
-      console.error("WebGL2 not supported");
-      return;
-    }
-
-    // Compile
-    const vs = compile(gl, gl.VERTEX_SHADER, VERT);
-    const fs = compile(gl, gl.FRAGMENT_SHADER, FRAG);
-    const prog = link(gl, vs, fs);
-    gl.useProgram(prog);
-
-    // Fullscreen quad
-    const vao = gl.createVertexArray()!;
-    gl.bindVertexArray(vao);
-    const vbo = gl.createBuffer()!;
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
-    const aPos = gl.getAttribLocation(prog, "aPos");
-    gl.enableVertexAttribArray(aPos);
-    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
-
-    // Atlas texture
-    const atlasCvs = buildCharAtlas();
-    const atlasTex = gl.createTexture()!;
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, atlasTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, atlasCvs);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-    // Grid texture (R8, COLS x ROWS) — char indices
-    const gridData = new Uint8Array(COLS * ROWS);
-    const charAges = new Uint8Array(COLS * ROWS);
-    for (let i = 0; i < gridData.length; i++) gridData[i] = Math.floor(Math.random() * CHARS.length);
-    const gridTex = gl.createTexture()!;
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, gridTex);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, COLS, ROWS, 0, gl.RED, gl.UNSIGNED_BYTE, gridData);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-    // Heads texture (R8, COLS x 1) — normalized head positions
-    const headData = new Uint8Array(COLS);
-    const colSpeeds = new Float32Array(COLS);
-    const headPos = new Float32Array(COLS);  // raw head positions
-    for (let i = 0; i < COLS; i++) {
-      colSpeeds[i] = 0.28 + Math.random() * 1.0;
-      headPos[i] = Math.random() * ROWS;
-    }
-    const headTex = gl.createTexture()!;
-    gl.activeTexture(gl.TEXTURE2);
-    gl.bindTexture(gl.TEXTURE_2D, headTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, COLS, 1, 0, gl.RED, gl.UNSIGNED_BYTE, headData);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-    // Uniform locations
-    const uAtlas  = gl.getUniformLocation(prog, "uAtlas");
-    const uGrid   = gl.getUniformLocation(prog, "uGrid");
-    const uHeads  = gl.getUniformLocation(prog, "uHeads");
-    const uTime   = gl.getUniformLocation(prog, "uTime");
-    const uAspect = gl.getUniformLocation(prog, "uAspect");
-    const uExprA  = gl.getUniformLocation(prog, "uExprA");
-    const uExprB  = gl.getUniformLocation(prog, "uExprB");
-    const uState  = gl.getUniformLocation(prog, "uStateColor");
-    const uAlert  = gl.getUniformLocation(prog, "uAlert");
-    const uLightShift = gl.getUniformLocation(prog, "uLightShift");
-    const uReasoningGlow = gl.getUniformLocation(prog, "uReasoningGlow");
-    gl.uniform1i(uAtlas, 0);
-    gl.uniform1i(uGrid, 1);
-    gl.uniform1i(uHeads, 2);
-
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
+    const ctx = canvas.getContext("2d")!;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
     const resize = () => {
-      const w = canvas.clientWidth * dpr;
-      const h = canvas.clientHeight * dpr;
-      if (canvas.width !== w || canvas.height !== h) {
-        canvas.width = w;
-        canvas.height = h;
-        gl.viewport(0, 0, w, h);
-      }
+      canvas.width  = canvas.clientWidth  * dpr;
+      canvas.height = canvas.clientHeight * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     resize();
     window.addEventListener("resize", resize);
 
-    // Expression state
+    const cols = makeCols();
+    let cells: Cell[] = [];
+    let gridSz = { w: 0, h: 0 };
     let expr: Expr = { ...E_IDLE };
     let talkT = 0;
-    let blinkPhase = 0;
-    let blinkTimer = 0;
-    let blinkNext = 200;
-    let frame = 0;
-    let raf = 0;
+    let blinkTimer = 0, blinkNext = 200, blinkPhase = 0;
+    let frame = 0, raf = 0;
+    let prevLxShift = 0, prevLyShift = 0;
 
-    const render = () => {
+    // Double-tap
+    canvas.addEventListener("click", () => {
+      const now = Date.now();
+      if (now - lastTap.current < 300) onDoubleTap?.();
+      lastTap.current = now;
+    });
+
+    const draw = () => {
       frame++;
-      resize();
       const { agentState: state, amplitude: level, orientation: ori } = propsRef.current;
+      const W = canvas.clientWidth, H = canvas.clientHeight;
+
+      // Layout — face fills almost full canvas
+      const PAD = 6, HDR = 32, FOOT = 24;
+      const gL = PAD + 2, gT = PAD + HDR + 1;
+      const gW = W - gL - PAD - 2, gH = H - gT - FOOT - PAD;
+      const cellW = gW / COLS, cellH = gH / ROWS;
+
+      // Orientation-driven light shift
+      const lxTarget = clamp((ori?.gamma ?? 0) / 45, -1, 1) * 0.20;
+      const lyTarget = clamp(((ori?.beta ?? 45) - 45) / 45, -1, 1) * 0.20;
+      prevLxShift = lerp(prevLxShift, lxTarget, 0.05);
+      prevLyShift = lerp(prevLyShift, lyTarget, 0.05);
+
+      // Rebuild cell table if needed
+      if (gridSz.w !== gW || gridSz.h !== gH) {
+        gridSz = { w: gW, h: gH };
+        cells = buildCells(gW, gH, prevLxShift, prevLyShift);
+      }
 
       // Blink
       blinkTimer++;
       if (state === "idle" && blinkTimer > blinkNext) {
-        blinkPhase = 10; blinkTimer = 0; blinkNext = 165 + Math.random() * 250;
+        blinkPhase = 10; blinkTimer = 0; blinkNext = 160 + Math.random() * 260;
       }
       const blinkAmt = blinkPhase > 0 ? Math.sin((blinkPhase / 10) * Math.PI) : 0;
       if (blinkPhase > 0) blinkPhase--;
 
       // Expression target
       let target: Expr;
-      if (state === "reasoning") target = E_REASONING;
-      else if (state === "alert") target = E_ALERT;
-      else if (state === "responding") {
+      if (state === "reasoning") {
+        target = E_REASONING;
+      } else if (state === "alert") {
+        target = E_ALERT;
+      } else if (state === "responding") {
         const spd = level > 0.06 ? level * 12 : 0.05;
         talkT = (talkT + spd) % 4;
         const tf = TALK_FRAMES[Math.floor(talkT)];
         target = level > 0.04 ? { ...tf, mouthOpen: clamp(level * 1.9, 0.12, 1.0) } : tf;
       } else {
         const p = 0.5 + 0.5 * Math.sin(frame * 0.007);
-        target = { ...E_IDLE, smileAmt: 0.32 + p * 0.56 };
+        target = { ...E_IDLE, smileAmt: 0.30 + p * 0.58 };
       }
       target = { ...target, eyeOpenness: target.eyeOpenness * clamp(1 - blinkAmt * 0.98, 0.02, 1) };
-      expr = lerpExpr(expr, target, 0.09);
+      expr = lerpE(expr, target, 0.09);
 
-      // Column heads + char recycling
-      const driveSpeed = state === "alert" ? 1.30 : state === "reasoning" ? 0.85 : 0.45;
-      for (let c = 0; c < COLS; c++) {
-        headPos[c] += colSpeeds[c] * driveSpeed;
-        if (headPos[c] > ROWS + 14) headPos[c] = -(3 + Math.random() * 10);
-        headData[c] = Math.max(0, Math.min(255, Math.floor(((headPos[c] + 4) / (ROWS + 14)) * 255)));
-      }
-      // Character recycle
-      for (let r = 0; r < ROWS; r++) {
-        for (let c = 0; c < COLS; c++) {
-          const i = r * COLS + c;
-          charAges[i]++;
-          const nearHead = Math.abs(headPos[c] - r) < 4;
-          if (charAges[i] > (nearHead ? 1 : 22)) {
-            gridData[i] = Math.floor(Math.random() * CHARS.length);
-            charAges[i] = 0;
+      // Update columns
+      const driveSpeed = state === "alert" ? 1.40 : state === "reasoning" ? 0.90 : 0.48;
+      for (const col of cols) {
+        col.head += col.speed * driveSpeed;
+        if (col.head > ROWS + 14) col.head = -(3 + Math.random() * 10);
+        for (let r = 0; r < ROWS; r++) {
+          col.ages[r]++;
+          if (col.ages[r] > (Math.abs(col.head - r) < 4 ? 1 : 20)) {
+            col.chars[r] = CHARS[Math.floor(Math.random() * CHARS.length)];
+            col.ages[r] = 0;
           }
         }
       }
+      // Reasoning glitch
+      if (state === "reasoning" && Math.random() < 0.007)
+        cols[Math.floor(Math.random() * COLS)].head += Math.random() * 3;
 
-      // Upload textures
-      gl.activeTexture(gl.TEXTURE1);
-      gl.bindTexture(gl.TEXTURE_2D, gridTex);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, COLS, ROWS, gl.RED, gl.UNSIGNED_BYTE, gridData);
+      // ── CLEAR ─────────────────────────────────────────────────────────────
+      ctx.fillStyle = "#000703";
+      ctx.fillRect(0, 0, W, H);
+      if (state === "alert") { ctx.fillStyle = "rgba(50,2,2,0.28)"; ctx.fillRect(0, 0, W, H); }
 
-      gl.activeTexture(gl.TEXTURE2);
-      gl.bindTexture(gl.TEXTURE_2D, headTex);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, COLS, 1, gl.RED, gl.UNSIGNED_BYTE, headData);
+      // ── CHARACTER RENDER ──────────────────────────────────────────────────
+      const [sr, sg, sb] = STATE_RGB[state];
+      const fSize = Math.max(5.5, Math.min(cellH * 0.90, cellW * 1.25));
+      ctx.font = `${fSize}px 'Courier New',monospace`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
 
-      // Uniforms
-      gl.uniform1f(uTime, frame);
-      const aspect = (canvas.clientWidth / canvas.clientHeight) * 0.96;
-      gl.uniform1f(uAspect, aspect);
-      gl.uniform4f(uExprA, expr.mouthOpen, expr.mouthRound, expr.eyeOpenness, expr.browFurrow);
-      gl.uniform4f(uExprB, expr.browHeight, expr.smileAmt, expr.browSplit, blinkAmt);
+      // Bloom cell list
+      const bloom: Array<{ px: number; py: number; ch: string; brite: number }> = [];
 
-      const [sr, sg, sb] = STATE_HUE[state];
-      gl.uniform3f(uState, sr, sg, sb);
-      gl.uniform1f(uAlert, state === "alert" ? 1.0 : 0.0);
-      gl.uniform1f(uReasoningGlow, state === "reasoning" ? 1.0 : 0.0);
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const px = gL + (c + 0.5) * cellW;
+          const py = gT + (r + 0.5) * cellH;
+          const cell = cells[r * COLS + c];
+          const col  = cols[c];
 
-      // Orientation-driven light shift
-      const gamma = ori?.gamma ?? 0;
-      const beta = ori?.beta ?? 0;
-      const lx = clamp(gamma / 45, -1, 1) * 0.18;
-      const ly = clamp((beta - 45) / 45, -1, 1) * 0.18;
-      gl.uniform2f(uLightShift, lx, ly);
+          const fBrite = applyExpr(cell, expr);
 
-      // Clear + draw
-      gl.clearColor(0, 0.015, 0.008, 1);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+          // Rain — only forward from head, kept very dim in background
+          const hd = col.head - r;
+          const rainBrite = (hd >= 0 && hd < 1) ? 1.0
+            : (hd < 0 || hd >= 18) ? 0.012
+            : Math.exp(-hd * 0.35);
 
-      raf = requestAnimationFrame(render);
-    };
-    raf = requestAnimationFrame(render);
+          // Composite: face completely dominates, background near-invisible
+          let final: number;
+          if (fBrite > 0.15) {
+            final = fBrite;                           // face pixel — full brightness
+          } else if (fBrite > 0.04) {
+            final = fBrite * 0.7 + rainBrite * 0.10;
+          } else {
+            final = rainBrite * 0.13 + 0.005;         // background: nearly black
+          }
+          final = clamp(final, 0, 1);
 
-    // Double-tap handler
-    const handleTap = () => {
-      const now = Date.now();
-      if (now - lastTapRef.current < 300) {
-        onDoubleTap?.();
+          // Depth tint: raised → warmer, recessed → cooler
+          const dt = cell.onFace ? cell.depth * 0.65 : 0;
+          let rc: number, gc: number, bc: number;
+          if (state === "alert") {
+            if (!cell.onFace || fBrite <= 0.08) {
+              rc = Math.floor(rainBrite * 200); gc = Math.floor(rainBrite * 35); bc = Math.floor(rainBrite * 25);
+            } else {
+              rc = Math.floor(final * (sr + dt * 10));
+              gc = Math.floor(final * Math.max(8, sg - fBrite * 30));
+              bc = Math.floor(final * sb);
+            }
+          } else {
+            rc = clamp(Math.floor(final * (sr + dt * 80)), 0, 255);
+            gc = clamp(Math.floor(final * sg), 0, 255);
+            bc = clamp(Math.floor(final * Math.max(0, sb - dt * 45)), 0, 255);
+          }
+
+          const alpha = clamp(
+            cell.onFace && fBrite > 0.12 ? final * 1.25 : final * 1.4,
+            0.005, 1
+          );
+          ctx.fillStyle = `rgba(${rc},${gc},${bc},${alpha})`;
+          ctx.fillText(col.chars[r], px, py);
+
+          if (cell.onFace && fBrite > 0.50)
+            bloom.push({ px, py, ch: col.chars[r], brite: fBrite });
+        }
       }
-      lastTapRef.current = now;
-    };
-    canvas.addEventListener("click", handleTap);
 
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("resize", resize);
-      canvas.removeEventListener("click", handleTap);
-      gl.deleteTexture(atlasTex);
-      gl.deleteTexture(gridTex);
-      gl.deleteTexture(headTex);
-      gl.deleteProgram(prog);
-      gl.deleteShader(vs);
-      gl.deleteShader(fs);
-      gl.deleteBuffer(vbo);
-      gl.deleteVertexArray(vao);
+      // ── BLOOM PASS — phosphor glow on bright face pixels ─────────────────
+      if (bloom.length > 0) {
+        ctx.save();
+        ctx.globalCompositeOperation = "screen";
+        ctx.shadowColor = `rgba(${sr},${sg},${sb},1)`;
+        ctx.shadowBlur = 8;
+        ctx.globalAlpha = 0.50;
+        ctx.fillStyle = `rgb(${sr},${sg},${sb})`;
+        for (const { px, py, ch } of bloom) ctx.fillText(ch, px, py);
+        ctx.restore();
+      }
+
+      // ── SCANLINES ─────────────────────────────────────────────────────────
+      ctx.save();
+      ctx.globalAlpha = 0.028;
+      ctx.fillStyle = "#000";
+      for (let y = gT; y < gT + gH; y += 3) ctx.fillRect(gL, y, gW, 1.5);
+      ctx.restore();
+
+      // ── VIGNETTE ─────────────────────────────────────────────────────────
+      const vg = ctx.createRadialGradient(W/2, gT + gH/2, gH*0.12, W/2, gT + gH/2, gH*0.62);
+      vg.addColorStop(0, "rgba(0,0,0,0)");
+      vg.addColorStop(1, "rgba(0,0,0,0.45)");
+      ctx.fillStyle = vg;
+      ctx.fillRect(gL, gT, gW, gH);
+
+      // ── WEATHER ──────────────────────────────────────────────────────────
+      const wx = propsRef.current.weather;
+      if (wx?.condition === "rain" || wx?.condition === "thunder") {
+        ctx.strokeStyle = "rgba(80,200,120,0.06)";
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 7; i++) {
+          const rx = gL + ((frame * 2 + i * 57) % gW);
+          const ry = gT + ((frame * 4 + i * 41) % gH);
+          ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx - 2, ry + 8); ctx.stroke();
+        }
+      }
+      if (wx?.condition === "thunder" && frame % 80 < 5) {
+        ctx.fillStyle = "rgba(180,220,255,0.04)"; ctx.fillRect(gL, gT, gW, gH);
+      }
+
+      // ── CHROME ────────────────────────────────────────────────────────────
+      const shellRgb = `${sr},${sg},${sb}`;
+      const shellCss = `rgb(${shellRgb})`;
+      const r12 = 11;
+
+      // Outer glow border
+      ctx.save();
+      ctx.shadowColor = shellCss;
+      ctx.shadowBlur = state === "alert" ? 16 : 10;
+      ctx.strokeStyle = shellCss;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(PAD, PAD, W - PAD * 2, H - PAD * 2, r12);
+      ctx.stroke();
+      ctx.restore();
+
+      // Inner dim border
+      ctx.strokeStyle = `rgba(${shellRgb},0.20)`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(PAD + 2, PAD + 2, W - PAD*2 - 4, H - PAD*2 - 4, r12 - 2);
+      ctx.stroke();
+
+      // Title bar fill
+      ctx.fillStyle = "rgba(0,5,2,0.97)";
+      ctx.beginPath();
+      ctx.roundRect(PAD + 1, PAD + 1, W - PAD*2 - 2, HDR, [r12 - 1, r12 - 1, 0, 0]);
+      ctx.fill();
+
+      // Title separator
+      ctx.strokeStyle = `rgba(${shellRgb},0.15)`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(PAD + 14, PAD + HDR + 0.5);
+      ctx.lineTo(W - PAD - 14, PAD + HDR + 0.5);
+      ctx.stroke();
+
+      // Smiley
+      const icX = PAD + 17, icY = PAD + HDR / 2;
+      ctx.fillStyle = "#f6d22a";
+      ctx.shadowColor = "#f6d22a88"; ctx.shadowBlur = 4;
+      ctx.beginPath(); ctx.arc(icX, icY, 8.5, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "rgba(0,0,0,0.92)";
+      ctx.beginPath();
+      ctx.arc(icX - 2.8, icY - 2, 1.2, 0, Math.PI * 2);
+      ctx.arc(icX + 2.8, icY - 2, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(0,0,0,0.92)"; ctx.lineWidth = 1.3;
+      ctx.beginPath(); ctx.arc(icX, icY + 0.5, 4.2, 0.2, Math.PI - 0.2); ctx.stroke();
+
+      // State pulse dot
+      const pulseK = state !== "idle" ? 0.6 + 0.4 * Math.sin(frame * (state === "alert" ? 0.20 : 0.07)) : 0.92;
+      ctx.fillStyle = `rgba(${shellRgb},${pulseK})`;
+      ctx.shadowColor = shellCss; ctx.shadowBlur = 6;
+      ctx.beginPath(); ctx.arc(PAD + 30, icY, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // HERMES title
+      ctx.font = "bold 12px ui-monospace,'SF Mono',monospace";
+      ctx.textAlign = "left";
+      ctx.fillStyle = shellCss;
+      ctx.shadowColor = shellCss; ctx.shadowBlur = 5;
+      ctx.fillText("HERMES", PAD + 42, icY + 4);
+      ctx.shadowBlur = 0;
+
+      // Active tool (centre)
+      const tool = propsRef.current.activeTool;
+      if (tool) {
+        ctx.font = "9px ui-monospace,'SF Mono',monospace";
+        ctx.textAlign = "center";
+        ctx.fillStyle = `rgba(${shellRgb},0.55)`;
+        ctx.fillText(tool.replace(/_/g, " ").toUpperCase().slice(0, 18), W / 2, icY + 4);
+      }
+
+      // Window controls (top-right) — terminal style
+      const ctrlY = icY;
+      // — minimize
+      ctx.strokeStyle = `rgba(${shellRgb},0.50)`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(W - PAD - 52, ctrlY); ctx.lineTo(W - PAD - 44, ctrlY); ctx.stroke();
+      // □ maximise
+      ctx.strokeStyle = `rgba(${shellRgb},0.60)`;
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(W - PAD - 36, ctrlY - 4, 8, 8);
+      // ✕ close
+      ctx.strokeStyle = `rgba(${shellRgb},0.75)`;
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.moveTo(W - PAD - 20, ctrlY - 4); ctx.lineTo(W - PAD - 12, ctrlY + 4);
+      ctx.moveTo(W - PAD - 12, ctrlY - 4); ctx.lineTo(W - PAD - 20, ctrlY + 4);
+      ctx.stroke();
+
+      // Footer fill
+      ctx.fillStyle = "rgba(0,5,2,0.97)";
+      ctx.beginPath();
+      ctx.roundRect(PAD + 1, H - PAD - FOOT, W - PAD*2 - 2, FOOT - 1, [0, 0, r12 - 1, r12 - 1]);
+      ctx.fill();
+
+      // Footer separator
+      ctx.strokeStyle = `rgba(${shellRgb},0.12)`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(PAD + 14, H - PAD - FOOT + 0.5);
+      ctx.lineTo(W - PAD - 14, H - PAD - FOOT + 0.5);
+      ctx.stroke();
+
+      // Footer text
+      ctx.font = "9px ui-monospace,'SF Mono',monospace";
+      ctx.fillStyle = `rgba(${shellRgb},0.65)`;
+      ctx.textAlign = "left";
+      ctx.fillText("CMD ▸", PAD + 14, H - PAD - FOOT / 2 + 3);
+      ctx.textAlign = "center";
+      ctx.fillStyle = `rgba(${shellRgb},0.80)`;
+      ctx.fillText(state.toUpperCase(), W / 2, H - PAD - FOOT / 2 + 3);
+      ctx.textAlign = "right";
+      ctx.fillStyle = `rgba(${shellRgb},0.55)`;
+      ctx.fillText(
+        state === "reasoning" && tokenCount > 0 ? `${tokenCount} OPS`
+          : wx ? `${wx.temp}°` : "—",
+        W - PAD - 14, H - PAD - FOOT / 2 + 3
+      );
+
+      // Alert pulse overlay
+      if (state === "alert") {
+        const alertK = 0.06 + 0.04 * Math.sin(frame * 0.15);
+        ctx.fillStyle = `rgba(255,0,0,${alertK})`;
+        ctx.beginPath();
+        ctx.roundRect(PAD, PAD, W - PAD*2, H - PAD*2, r12);
+        ctx.fill();
+      }
+
+      raf = requestAnimationFrame(draw);
     };
+
+    raf = requestAnimationFrame(draw);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", resize); };
   }, []);
 
-  // ── Chrome overlay (DOM) ────────────────────────────────────────────────────
-  const shellRgb =
-    agentState === "alert"      ? "rgb(255,80,80)" :
-    agentState === "reasoning"  ? "rgb(64,240,215)" :
-    agentState === "responding" ? "rgb(0,230,255)" :
-                                  "rgb(0,255,100)";
-
-  const stateLabel = agentState.toUpperCase();
-  const dotClass =
-    agentState === "alert" ? "animate-pulse"
-    : agentState === "reasoning" ? "animate-pulse"
-    : "";
-
   return (
-    <div
-      className="relative w-full"
-      style={{
-        height: 420,
-        borderRadius: 14,
-        overflow: "hidden",
-        background: "#000503",
-        border: `1.5px solid ${shellRgb}`,
-        boxShadow: `0 0 14px ${shellRgb}55, inset 0 0 18px ${shellRgb}22`,
-      }}
-    >
+    <div className="relative w-full" style={{ minHeight: 420 }}>
       <canvas
         ref={canvasRef}
-        style={{
-          position: "absolute",
-          inset: 0,
-          width: "100%",
-          height: "100%",
-          display: "block",
-        }}
+        className="w-full"
+        style={{ height: 420, display: "block" }}
       />
-
-      {/* Title bar */}
-      <div
-        className="absolute top-0 left-0 right-0 flex items-center justify-between px-3 py-1.5 pointer-events-none"
-        style={{
-          height: 34,
-          background: "linear-gradient(to bottom, rgba(0,6,3,0.98), rgba(0,6,3,0.85))",
-          borderBottom: `1px solid ${shellRgb}33`,
-          backdropFilter: "blur(4px)",
-        }}
-      >
-        <div className="flex items-center gap-2">
-          {/* Smiley */}
-          <div
-            style={{
-              width: 18, height: 18, borderRadius: "50%",
-              background: "#f6d22a",
-              boxShadow: "0 0 6px #f6d22a88",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 12, lineHeight: 1,
-            }}
-          >
-            <span style={{ color: "#000", fontSize: 13 }}>☺</span>
-          </div>
-          {/* State dot */}
-          <div
-            className={dotClass}
-            style={{
-              width: 7, height: 7, borderRadius: "50%",
-              background: shellRgb,
-              boxShadow: `0 0 6px ${shellRgb}`,
-            }}
-          />
-          <span
-            style={{
-              fontFamily: "ui-monospace,'SF Mono',monospace",
-              fontSize: 11, fontWeight: 700,
-              color: shellRgb,
-              textShadow: `0 0 4px ${shellRgb}88`,
-              letterSpacing: 1,
-            }}
-          >
-            HERMES
-          </span>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {activeTool && (
-            <span
-              style={{
-                fontFamily: "ui-monospace,'SF Mono',monospace",
-                fontSize: 9,
-                color: `${shellRgb}99`,
-                letterSpacing: 0.5,
-              }}
-            >
-              {activeTool.replace(/_/g, " ").toUpperCase().slice(0, 14)}
-            </span>
-          )}
-          {/* Terminal-style controls */}
-          <div className="flex items-center gap-2">
-            <div style={{ width: 10, height: 2, background: `${shellRgb}80` }} />
-            <div style={{ width: 8, height: 8, border: `1.2px solid ${shellRgb}aa` }} />
-            <svg width="10" height="10" viewBox="0 0 10 10">
-              <line x1="1" y1="1" x2="9" y2="9" stroke={shellRgb} strokeWidth="1.3" />
-              <line x1="9" y1="1" x2="1" y2="9" stroke={shellRgb} strokeWidth="1.3" />
-            </svg>
-          </div>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div
-        className="absolute bottom-0 left-0 right-0 flex items-center justify-between px-3 pointer-events-none"
-        style={{
-          height: 26,
-          background: "linear-gradient(to top, rgba(0,6,3,0.98), rgba(0,6,3,0.85))",
-          borderTop: `1px solid ${shellRgb}33`,
-          fontFamily: "ui-monospace,'SF Mono',monospace",
-          fontSize: 9,
-          color: `${shellRgb}cc`,
-          letterSpacing: 0.5,
-          backdropFilter: "blur(4px)",
-        }}
-      >
-        <span style={{ color: `${shellRgb}88` }}>CMD ▸</span>
-        <span>{stateLabel}</span>
-        <span style={{ color: `${shellRgb}88` }}>
-          {agentState === "reasoning" && tokenCount > 0
-            ? `${tokenCount} OPS`
-            : weather
-              ? `${weather.temp}°`
-              : "—"}
-        </span>
-      </div>
-
-      {/* Alert overlay */}
-      {agentState === "alert" && (
-        <div
-          className="absolute inset-0 pointer-events-none animate-pulse"
-          style={{
-            background: "radial-gradient(circle at 50% 45%, transparent 40%, rgba(255,30,30,0.12) 100%)",
-          }}
-        />
-      )}
     </div>
   );
 }
