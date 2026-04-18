@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/v1/:path*",
+      "destination": "https://YOUR_NGROK_DOMAIN/v1/:path*"
+    },
+    {
+      "source": "/health",
+      "destination": "https://YOUR_NGROK_DOMAIN/health"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://YOUR_NGROK_DOMAIN/api/:path*"
+    }
+  ]
+}

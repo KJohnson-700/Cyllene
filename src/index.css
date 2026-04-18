@@ -1,0 +1,124 @@
+@import "tailwindcss";
+
+:root {
+  --tg-color-scheme: dark;
+  --tg-bg-color: #0a0a0f;
+  --tg-secondary-bg-color: #10151b;
+  --tg-bottom-bar-bg-color: #0a0a0f;
+  --tg-text-color: #ffffff;
+  --tg-hint-color: rgba(255, 255, 255, 0.42);
+  --tg-link-color: #4de48a;
+  --tg-button-color: #18a558;
+  --tg-button-text-color: #f6fff8;
+  --tg-accent-color: #4de48a;
+
+  /* Viewport */
+  --app-viewport-height: 100vh;
+  --app-viewport-stable-height: 100vh;
+
+  /* Telegram system safe areas (set by applyTelegramTheme) */
+  --tg-safe-top: 0px;
+  --tg-safe-bottom: 0px;
+  --tg-safe-left: 0px;
+  --tg-safe-right: 0px;
+
+  /* Content safe areas (inside Telegram chrome, set by applyTelegramTheme) */
+  --tg-content-safe-top: 0px;
+  --tg-content-safe-bottom: 0px;
+  --tg-content-safe-left: 0px;
+  --tg-content-safe-right: 0px;
+}
+
+/* ── Safe areas ────────────────────────────────────────────────── */
+/* CSS env() handles hardware notch/home bar.
+   Telegram --tg-safe-* vars cover Telegram's own chrome when set. */
+.safe-area-top {
+  padding-top: max(env(safe-area-inset-top, 0px), var(--tg-safe-top, 0px));
+}
+
+.safe-area-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom, 8px), var(--tg-safe-bottom, 0px));
+}
+
+.safe-area-x {
+  padding-left:  max(env(safe-area-inset-left,  0px), var(--tg-safe-left,  0px));
+  padding-right: max(env(safe-area-inset-right, 0px), var(--tg-safe-right, 0px));
+}
+
+/* Content safe area: excludes Telegram header/footer chrome */
+.content-safe-top    { padding-top:    var(--tg-content-safe-top,    0px); }
+.content-safe-bottom { padding-bottom: var(--tg-content-safe-bottom, 0px); }
+
+.app-shell {
+  height: var(--app-viewport-stable-height, 100vh);
+  min-height: -webkit-fill-available;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top, rgba(77, 228, 138, 0.08), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--tg-bg-color) 92%, black) 0%, var(--tg-bg-color) 100%);
+  color: var(--tg-text-color);
+}
+
+/* Fullscreen: expand to full viewport, hide browser chrome */
+.app-shell--fullscreen {
+  height: 100dvh;
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+}
+
+/* ── Base ──────────────────────────────────────────────────────── */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--tg-bg-color);
+  color: var(--tg-text-color);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  overscroll-behavior: none;
+}
+
+/* Monospace for code/terminal elements */
+.font-mono {
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", ui-monospace, monospace;
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 3px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+}
+
+/* ── Textarea auto-resize helper ───────────────────────────────── */
+textarea {
+  field-sizing: content;
+}
+
+/* ── Animations ────────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes particle-fly {
+  0%   { opacity: 1;   transform: translate(0, 0) scale(1);    }
+  80%  { opacity: 0.6; transform: translate(var(--dx), var(--dy)) scale(1.2); }
+  100% { opacity: 0;   transform: translate(calc(var(--dx) * 1.15), calc(var(--dy) * 1.1)) scale(0.6); }
+}
