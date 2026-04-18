@@ -271,9 +271,9 @@ function drawGhost(
     const eyeOpen = side < 0 ? e.eyeOpenL : e.eyeOpenR;
     const eyeRY   = eyeRYbase * clamp(eyeOpen, 0.04, 1.8);
 
-    if (e.xEyes > 0.5) {
+    if (e.xEyes > 0.05) {
       // ── X eyes (KO / error state) ──
-      const xS = eyeRX * 1.1 * e.xEyes;
+      const xS = eyeRX * 1.1 * Math.min(e.xEyes + 0.4, 1);
       ctx.strokeStyle = `rgba(8,14,22,${0.7 + e.xEyes * 0.25})`;
       ctx.lineWidth   = R * 0.08;
       ctx.lineCap     = "round";
