@@ -16,6 +16,10 @@ dist-ssr/
 # ── Claude Code local settings ───────────────────────────────────────────────
 .claude/
 
+# ── Nested repo (stale working copy — not part of this project) ──────────────
+Cyllene/
+public/design/
+
 # ── macOS ─────────────────────────────────────────────────────────────────────
 .DS_Store
 .AppleDouble

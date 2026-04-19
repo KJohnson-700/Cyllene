@@ -77,6 +77,19 @@ def _vault_markdown_files() -> list[Path]:
     )
 
 
+def _vault_recent_files(n: int = 20) -> list[dict]:
+    files = []
+    for path in _vault_markdown_files():
+        try:
+            stat = path.stat()
+            rel  = path.relative_to(OBSIDIAN_VAULT_PATH).as_posix()
+            files.append({"path": rel, "modified": int(stat.st_mtime), "size": stat.st_size})
+        except Exception:
+            continue
+    files.sort(key=lambda f: f["modified"], reverse=True)
+    return files[:n]
+
+
 def _search_vault_filesystem(query: str, limit: int = 8) -> list[dict]:
     terms = [term.lower() for term in re.findall(r"[a-zA-Z0-9_-]+", query) if len(term) > 1]
     if not terms:
@@ -450,6 +463,66 @@ async def handle_obsidian_daily_append(request: web.Request) -> web.Response:
         )
 
 
+async def handle_obsidian_recent(request: web.Request) -> web.Response:
+    """GET /obsidian/recent?n=20 → { ok, files: [{path, modified, size}] }"""
+    try:
+        n = min(max(int(request.query.get("n", "20")), 1), 100)
+    except ValueError:
+        n = 20
+    files = _vault_recent_files(n)
+    return web.json_response(
+        {"ok": True, "files": files},
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
+
+
+async def handle_obsidian_file(request: web.Request) -> web.Response:
+    """GET /obsidian/file?path=Kanban.md → { ok, content, path, mode }"""
+    raw_path = request.query.get("path", "").strip()
+    if not raw_path:
+        return web.json_response(
+            {"ok": False, "error": "path required"},
+            status=400,
+            headers={"Access-Control-Allow-Origin": "*"},
+        )
+
+    # Prevent directory traversal
+    safe = raw_path.lstrip("/")
+    safe = re.sub(r"\.\.[/\\]", "", safe)
+
+    # Try Obsidian REST API first
+    encoded = "/".join(part.replace(" ", "%20") for part in safe.split("/"))
+    result, _ = await _call_obsidian("GET", f"/vault/{encoded}")
+    if result.get("ok"):
+        body = result.get("body", "")
+        content = body if isinstance(body, str) else json.dumps(body)
+        return web.json_response(
+            {"ok": True, "content": content, "path": safe, "mode": "rest"},
+            headers={"Access-Control-Allow-Origin": "*"},
+        )
+
+    # Filesystem fallback
+    file_path = OBSIDIAN_VAULT_PATH / safe
+    if not file_path.exists() or not file_path.is_file():
+        return web.json_response(
+            {"ok": False, "error": f"File not found: {safe}"},
+            status=404,
+            headers={"Access-Control-Allow-Origin": "*"},
+        )
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="ignore")
+        return web.json_response(
+            {"ok": True, "content": content, "path": safe, "mode": "filesystem"},
+            headers={"Access-Control-Allow-Origin": "*"},
+        )
+    except Exception as exc:
+        return web.json_response(
+            {"ok": False, "error": str(exc)},
+            status=500,
+            headers={"Access-Control-Allow-Origin": "*"},
+        )
+
+
 async def handle_options(request: web.Request) -> web.Response:
     return web.Response(headers={
         "Access-Control-Allow-Origin": "*",
@@ -463,9 +536,11 @@ def make_app() -> web.Application:
     app.router.add_route("OPTIONS", "/{path:.*}", handle_options)
     # TTS must come BEFORE the generic /v1/* route
     app.router.add_post("/v1/tts", handle_tts)
-    app.router.add_get("/obsidian/status", handle_obsidian_status)
+    app.router.add_get("/obsidian/status",       handle_obsidian_status)
     app.router.add_route("*", "/obsidian/search", handle_obsidian_search)
     app.router.add_post("/obsidian/daily-append", handle_obsidian_daily_append)
+    app.router.add_get("/obsidian/recent",        handle_obsidian_recent)
+    app.router.add_get("/obsidian/file",          handle_obsidian_file)
     app.router.add_route("*", "/v1/{path:.*}", handle_api)
     app.router.add_route("*", "/health",        handle_api)
     app.router.add_route("*", "/api/{path:.*}", handle_web)
