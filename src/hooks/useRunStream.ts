@@ -6,6 +6,7 @@ import {
   loadMessages,
   clearPersistedMessages,
 } from "@/lib/session";
+import { pushLogEvent } from "@/lib/eventLog";
 
 export type AgentState = "idle" | "reasoning" | "responding" | "alert";
 
@@ -121,6 +122,7 @@ export function useRunStream() {
         setState((s) => {
           switch (event.event) {
             case "tool.started":
+              pushLogEvent({ kind: 'tool_start', label: event.tool ?? 'tool' });
               return {
                 ...s,
                 agentState: "reasoning",
@@ -129,6 +131,7 @@ export function useRunStream() {
               };
 
             case "tool.completed":
+              pushLogEvent({ kind: 'tool_done', label: event.tool ?? '' });
               return { ...s, activeTool: null };
 
             case "message.delta": {
@@ -163,6 +166,11 @@ export function useRunStream() {
             }
 
             case "run.completed": {
+              pushLogEvent({
+                kind: 'done',
+                label: 'run complete',
+                detail: assistantBufferRef.current.slice(0, 120),
+              });
               // Final output if no deltas came through
               const finalText = event.output ?? "";
               if (finalText && !assistantBufferRef.current) {
@@ -184,6 +192,7 @@ export function useRunStream() {
             }
 
             case "run.failed":
+              pushLogEvent({ kind: 'fail', label: event.error ?? 'failed' });
               return {
                 ...s,
                 agentState: "alert",

@@ -193,6 +193,14 @@ export const obsidianApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content }),
     }),
+  listRecent: (n = 20) =>
+    fetchJSON<{ files: Array<{ path: string; modified: number; size?: number }> }>(
+      localUrl(`/obsidian/recent?n=${n}`)
+    ),
+  readFile: (path: string) =>
+    fetchJSON<{ content: string; path: string }>(
+      localUrl(`/obsidian/file?path=${encodeURIComponent(path)}`)
+    ),
 };
 
 // ── Web Server (/api) ───────────────────────────────────────────────────────
