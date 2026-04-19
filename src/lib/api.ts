@@ -100,11 +100,14 @@ export interface HealthResponse {
 }
 
 /** Start an agent run. Returns run_id immediately (non-blocking). */
-export async function startRun(prompt: string): Promise<RunCreated> {
+export async function startRun(prompt: string, sessionId?: string): Promise<RunCreated> {
   return fetchJSON<RunCreated>(apiUrl("/v1/runs"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ input: prompt }),
+    body: JSON.stringify({
+      input: prompt,
+      ...(sessionId ? { session_id: sessionId } : {}),
+    }),
   });
 }
 

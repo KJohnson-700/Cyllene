@@ -1,5 +1,11 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { obsidianApi, startRun, streamRun, type RunEvent } from "@/lib/api";
+import {
+  getOrCreateSessionId,
+  saveMessages,
+  loadMessages,
+  clearPersistedMessages,
+} from "@/lib/session";
 
 export type AgentState = "idle" | "reasoning" | "responding" | "alert";
 
@@ -52,14 +58,21 @@ async function buildMemoryAwarePrompt(prompt: string): Promise<string> {
 }
 
 export function useRunStream() {
-  const [state, setState] = useState<RunStreamState>({
-    messages: [],
+  const sessionIdRef = useRef<string>(getOrCreateSessionId());
+
+  const [state, setState] = useState<RunStreamState>(() => ({
+    messages: loadMessages(),   // restore from localStorage on mount
     agentState: "idle",
     activeTool: null,
     tokenCount: 0,
     isRunning: false,
     error: null,
-  });
+  }));
+
+  // Persist messages whenever they change
+  useEffect(() => {
+    saveMessages(state.messages);
+  }, [state.messages]);
 
   const cancelRef = useRef<(() => void) | null>(null);
   const assistantBufferRef = useRef<string>("");
@@ -91,7 +104,7 @@ export function useRunStream() {
     let run: { run_id: string };
     try {
       const promptWithMemory = await buildMemoryAwarePrompt(prompt);
-      run = await startRun(promptWithMemory);
+      run = await startRun(promptWithMemory, sessionIdRef.current);
     } catch (err) {
       setState((s) => ({
         ...s,
@@ -210,7 +223,9 @@ export function useRunStream() {
   }, []);
 
   const clearMessages = useCallback(() => {
+    clearPersistedMessages();
     setState((s) => ({ ...s, messages: [], error: null }));
+    // Keep the same session ID — Hermes remembers even if the UI is cleared
   }, []);
 
   return { ...state, sendMessage, cancel, clearMessages };

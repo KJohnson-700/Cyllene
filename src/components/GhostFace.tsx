@@ -21,6 +21,8 @@ interface Props {
   weather?: { condition: string; temp: number } | null;
   orientation?: { beta: number; gamma: number } | null;
   onDoubleTap?: () => void;
+  /** When true, canvas fills the parent container instead of fixed 420px */
+  fillContainer?: boolean;
 }
 
 // State → [r, g, b] — ghost glow color
@@ -115,6 +117,132 @@ const E_ALERT: Expr = {
   armRaise: 0, blush: 0,
   squishY: 0.92, floatAmp: 1.8, floatSpeed: 2.2, driftAmp: 1.6, spinSpeed: 1.4,
 };
+
+// ── Idle micro-expressions — reference-frame inspired variety ─────────────────
+// Curious: tilted head, one squinted eye, looking up-right
+const E_IDLE_CURIOUS: Expr = {
+  eyeOpenL: 0.58, eyeOpenR: 1.38, eyeOffsetY: -0.12,
+  pupilOffX: 0.55, pupilOffY: -0.42, xEyes: 0,
+  mouthOpen: 0, smile: 0.48,
+  tilt: 0.18, wriggle: 0.18,
+  armRaise: 0, blush: 0.42,
+  squishY: 1.0, floatAmp: 0.85, floatSpeed: 0.82, driftAmp: 0.38, spinSpeed: 0,
+};
+// Sleepy: droopy eyes, very flat squished body — pancake ghost from row 3
+const E_IDLE_SLEEPY: Expr = {
+  eyeOpenL: 0.32, eyeOpenR: 0.38, eyeOffsetY: 0.22,
+  pupilOffX: 0, pupilOffY: 0.25, xEyes: 0,
+  mouthOpen: 0, smile: 0.35,
+  tilt: 0.09, wriggle: 0.09,
+  armRaise: 0, blush: 0.94,
+  squishY: 0.68, floatAmp: 0.30, floatSpeed: 0.48, driftAmp: 0.18, spinSpeed: 0,
+};
+// Surprised: giant eyes, tall body, bouncy — startled ghost
+const E_IDLE_SURPRISED: Expr = {
+  eyeOpenL: 1.78, eyeOpenR: 1.78, eyeOffsetY: -0.24,
+  pupilOffX: 0, pupilOffY: -0.12, xEyes: 0,
+  mouthOpen: 0.24, smile: 0,
+  tilt: 0, wriggle: 0.46,
+  armRaise: 0, blush: 0.20,
+  squishY: 1.24, floatAmp: 1.65, floatSpeed: 1.45, driftAmp: 0.65, spinSpeed: 0,
+};
+// Looking left: pupils dart hard, slight body lean
+const E_IDLE_LOOK_L: Expr = {
+  eyeOpenL: 0.90, eyeOpenR: 1.10, eyeOffsetY: 0,
+  pupilOffX: -0.82, pupilOffY: 0.06, xEyes: 0,
+  mouthOpen: 0, smile: 0.58,
+  tilt: -0.13, wriggle: 0.20,
+  armRaise: 0, blush: 0.55,
+  squishY: 1.0, floatAmp: 1.0, floatSpeed: 0.95, driftAmp: 0.48, spinSpeed: 0,
+};
+// Looking right
+const E_IDLE_LOOK_R: Expr = {
+  eyeOpenL: 1.10, eyeOpenR: 0.90, eyeOffsetY: 0,
+  pupilOffX: 0.82, pupilOffY: 0.06, xEyes: 0,
+  mouthOpen: 0, smile: 0.58,
+  tilt: 0.13, wriggle: 0.20,
+  armRaise: 0, blush: 0.55,
+  squishY: 1.0, floatAmp: 1.0, floatSpeed: 0.95, driftAmp: 0.48, spinSpeed: 0,
+};
+// Happy wiggle: big smile, energetic tail, bouncy — excited ghost
+const E_IDLE_WIGGLE: Expr = {
+  eyeOpenL: 1.22, eyeOpenR: 1.22, eyeOffsetY: -0.10,
+  pupilOffX: 0, pupilOffY: 0, xEyes: 0,
+  mouthOpen: 0, smile: 0.97,
+  tilt: 0, wriggle: 0.70,
+  armRaise: 0, blush: 0.92,
+  squishY: 1.08, floatAmp: 1.35, floatSpeed: 1.30, driftAmp: 0.70, spinSpeed: 0,
+};
+// Droopy/shy: face sliding downward, subtle frown, slow — shy ghost (bottom row)
+const E_IDLE_DROOP: Expr = {
+  eyeOpenL: 0.52, eyeOpenR: 0.52, eyeOffsetY: 0.38,
+  pupilOffX: 0, pupilOffY: 0.32, xEyes: 0,
+  mouthOpen: 0, smile: -0.28,
+  tilt: 0.12, wriggle: 0.11,
+  armRaise: 0, blush: 0.75,
+  squishY: 0.86, floatAmp: 0.52, floatSpeed: 0.68, driftAmp: 0.16, spinSpeed: 0,
+};
+// Peeking: one eye hidden, one big — ghost peeking around a corner
+const E_IDLE_PEEK: Expr = {
+  eyeOpenL: 0.18, eyeOpenR: 1.50, eyeOffsetY: 0.06,
+  pupilOffX: 0.65, pupilOffY: 0.08, xEyes: 0,
+  mouthOpen: 0, smile: 0.52,
+  tilt: 0.24, wriggle: 0.15,
+  armRaise: 0, blush: 0.52,
+  squishY: 1.0, floatAmp: 0.88, floatSpeed: 0.85, driftAmp: 0.32, spinSpeed: 0,
+};
+// Ultra-flat/melty: extreme squish, face barely visible — napping pancake ghost
+const E_IDLE_MELTY: Expr = {
+  eyeOpenL: 0.75, eyeOpenR: 0.70, eyeOffsetY: 0.55,
+  pupilOffX: 0, pupilOffY: 0.28, xEyes: 0,
+  mouthOpen: 0, smile: 0.28,
+  tilt: 0, wriggle: 0.07,
+  armRaise: 0, blush: 0.68,
+  squishY: 0.50, floatAmp: 0.22, floatSpeed: 0.40, driftAmp: 0.12, spinSpeed: 0,
+};
+// Alternate reasoning pose — opposite-eye squint, leans the other way
+const E_REASONING_B: Expr = {
+  eyeOpenL: 1.38, eyeOpenR: 0.42, eyeOffsetY: -0.22,
+  pupilOffX: -0.44, pupilOffY: -0.32, xEyes: 0,
+  mouthOpen: 0, smile: -0.28,
+  tilt: -0.20, wriggle: 0.10,
+  armRaise: 0, blush: 0,
+  squishY: 1.06, floatAmp: 0.50, floatSpeed: 0.60, driftAmp: 0.20, spinSpeed: 0,
+};
+// Cute spin — happy pirouette, wide smile, gentle rotation
+const E_IDLE_SPIN: Expr = {
+  eyeOpenL: 1.18, eyeOpenR: 1.18, eyeOffsetY: -0.06,
+  pupilOffX: 0, pupilOffY: 0, xEyes: 0,
+  mouthOpen: 0, smile: 0.95,
+  tilt: 0, wriggle: 0.40,
+  armRaise: 0, blush: 0.80,
+  squishY: 1.04, floatAmp: 1.15, floatSpeed: 1.25, driftAmp: 0.55, spinSpeed: 0.52,
+};
+// Zoom/dart — ghost travels wide, energetic drifting
+const E_IDLE_ZOOM: Expr = {
+  eyeOpenL: 1.30, eyeOpenR: 1.10, eyeOffsetY: -0.08,
+  pupilOffX: 0.30, pupilOffY: 0, xEyes: 0,
+  mouthOpen: 0.12, smile: 0.60,
+  tilt: 0.14, wriggle: 0.60,
+  armRaise: 0, blush: 0.50,
+  squishY: 0.94, floatAmp: 2.40, floatSpeed: 1.55, driftAmp: 3.20, spinSpeed: 0,
+};
+
+// Weighted pools — sampled randomly for organic variety
+const IDLE_MICROS: Expr[] = [
+  E_IDLE, E_IDLE, E_IDLE, E_IDLE,   // plain idle — most common
+  E_IDLE_CURIOUS, E_IDLE_CURIOUS,   // curious tilt
+  E_IDLE_LOOK_L, E_IDLE_LOOK_R,     // glancing around
+  E_IDLE_WIGGLE,                    // happy wriggle burst
+  E_IDLE_SLEEPY,                    // drowsy
+  E_IDLE_DROOP,                     // shy/droopy
+  E_IDLE_PEEK,                      // peeking sideways
+  E_IDLE_SURPRISED,                 // rare startle
+  E_IDLE_MELTY,                     // ultra-flat nap mode
+  E_IDLE_SPIN,                      // cute pirouette
+  E_IDLE_ZOOM,                      // wide energetic drift
+];
+const REASON_MICROS: Expr[] = [E_REASONING, E_REASONING, E_REASONING_B];
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
@@ -385,7 +513,7 @@ function drawSparkle(
 // ── Component ─────────────────────────────────────────────────────────────────
 export function GhostFace({
   agentState, activeTool, tokenCount = 0, amplitude = 0,
-  weather, orientation, onDoubleTap,
+  weather, orientation, onDoubleTap, fillContainer = false,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const propsRef  = useRef({ agentState, activeTool, tokenCount, amplitude, weather, orientation });
@@ -455,6 +583,17 @@ export function GhostFace({
     let alertVY      = (Math.random() - 0.5) * 2;
     let spinAngle    = 0;
 
+    // Micro-state — randomly cycles sub-expressions within each macro state
+    let microTimer     = 0;
+    let microDuration  = 180 + Math.floor(Math.random() * 260);
+    let currentMicro: Expr = { ...E_IDLE };
+    let lastMacroState = "";
+
+    // Pupil wander — natural eye drift during idle
+    let wanderX = 0, wanderY = 0;
+    let wanderTX = 0, wanderTY = 0;
+    let wanderTick = 0, wanderNext = 100 + Math.floor(Math.random() * 120);
+
     // Particles (reasoning mode)
     const particles: Particle[] = [];
 
@@ -485,10 +624,29 @@ export function GhostFace({
         const cy = gT + gH * 0.42;  // slightly above centre for tail room
 
         // ── Expression target ──────────────────────────────────────────────
-        let target: Expr;
+        // Reset micro-state pool on macro-state change
+        if (state !== lastMacroState) {
+          lastMacroState = state;
+          microTimer     = 0;
+          microDuration  = 80 + Math.floor(Math.random() * 120);
+          currentMicro   = state === "reasoning" ? { ...E_REASONING } : { ...E_IDLE };
+        }
 
+        // Advance micro-state timer — pick a new sub-expression from the pool
+        microTimer++;
+        if (microTimer >= microDuration) {
+          microTimer    = 0;
+          microDuration = 160 + Math.floor(Math.random() * 320);
+          if (state === "idle") {
+            currentMicro = IDLE_MICROS[Math.floor(Math.random() * IDLE_MICROS.length)];
+          } else if (state === "reasoning") {
+            currentMicro = REASON_MICROS[Math.floor(Math.random() * REASON_MICROS.length)];
+          }
+        }
+
+        let target: Expr;
         if (state === "reasoning") {
-          target = E_REASONING;
+          target = currentMicro;
         } else if (state === "alert") {
           target = E_ALERT;
         } else if (state === "responding") {
@@ -498,7 +656,28 @@ export function GhostFace({
           target = lerpE(E_RESPONDING_A, E_RESPONDING_B, talkT);
           if (level > 0.04) target = { ...target, mouthOpen: clamp(level * 2.0, 0.15, 1.0) };
         } else {
-          target = { ...E_IDLE };
+          target = currentMicro;
+        }
+
+        // Natural pupil wander — idle eyes drift to look at things
+        if (state === "idle") {
+          wanderTick++;
+          if (wanderTick > wanderNext) {
+            wanderTick = 0;
+            wanderNext = 80 + Math.floor(Math.random() * 160);
+            wanderTX   = (Math.random() - 0.5) * 0.58;
+            wanderTY   = (Math.random() - 0.5) * 0.34;
+          }
+          wanderX += (wanderTX - wanderX) * 0.035;
+          wanderY += (wanderTY - wanderY) * 0.035;
+          // Blend wander only when the micro-state has no strong explicit pupil intent
+          const hasExplicitPupil = Math.abs(currentMicro.pupilOffX) > 0.18 || Math.abs(currentMicro.pupilOffY) > 0.18;
+          if (!hasExplicitPupil) {
+            target = { ...target, pupilOffX: wanderX, pupilOffY: wanderY };
+          }
+        } else {
+          wanderX *= 0.94;  // decay when not idle
+          wanderY *= 0.94;
         }
 
         // Blink
@@ -514,7 +693,10 @@ export function GhostFace({
           if (blinkFrac < 0.05) blinkAmt = 0;
         }
 
-        expr = lerpE(expr, target, 0.10);
+        // Float-sync squish — body gently squishes at the bottom of each bob
+        target = { ...target, squishY: target.squishY * (1 + Math.sin(floatPhaseY * 2) * 0.022) };
+
+        expr = lerpE(expr, target, 0.22);
 
         // ── Float position ─────────────────────────────────────────────────
         floatPhaseY += 0.022 * expr.floatSpeed;
@@ -593,6 +775,27 @@ export function GhostFace({
 
         // ── Draw ghost ─────────────────────────────────────────────────────
         drawGhost(ctx, ghostCX, ghostCY, R, frame, expr, sr, sg, sb, spinAngle);
+
+        // ── Floating question marks (reasoning / waiting) ───────────────────
+        if (state === "reasoning") {
+          ctx.textAlign    = "center";
+          ctx.textBaseline = "middle";
+          const qCount = 3;
+          for (let qi = 0; qi < qCount; qi++) {
+            // Each ? orbits at a different angle, slowly rotating
+            const baseAngle = frame * 0.017 + qi * (Math.PI * 2 / qCount);
+            const orbitR    = R * 1.58;
+            const qx        = ghostCX + Math.cos(baseAngle) * orbitR;
+            const qy        = ghostCY + Math.sin(baseAngle) * orbitR * 0.46 - R * 0.12;
+            // Pulse size & alpha independently per mark
+            const sz    = R * (0.24 + 0.07 * Math.sin(frame * 0.045 + qi * 1.3));
+            const alpha = 0.22 + 0.15 * Math.sin(frame * 0.062 + qi * 2.2);
+            ctx.font      = `bold ${Math.round(sz)}px ui-monospace,'SF Mono','Courier New',monospace`;
+            ctx.fillStyle = `rgba(${sr},${sg},${sb},${alpha.toFixed(2)})`;
+            ctx.fillText("?", qx, qy);
+          }
+          ctx.textBaseline = "alphabetic";  // restore default
+        }
 
         // ── Scanlines ──────────────────────────────────────────────────────
         ctx.globalAlpha = 0.018;
@@ -741,11 +944,14 @@ export function GhostFace({
   }, []);
 
   return (
-    <div className="relative w-full" style={{ minHeight: 420 }}>
+    <div
+      className={fillContainer ? "relative w-full h-full" : "relative w-full"}
+      style={fillContainer ? undefined : { minHeight: 420 }}
+    >
       <canvas
         ref={canvasRef}
         className="w-full"
-        style={{ height: 420, display: "block" }}
+        style={fillContainer ? { height: "100%", display: "block" } : { height: 420, display: "block" }}
       />
     </div>
   );

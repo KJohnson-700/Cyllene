@@ -126,6 +126,7 @@ export function useSpeechInput() {
   const start = useCallback(() => {
     const recognition = recognitionRef.current;
     if (!recognition || listening) return false;
+    recognition.continuous = true;  // always continuous — auto-send is timer-driven in ChatPage
     accumulatedRef.current = "";    // fresh session
     setError(null);
     setInterimTranscript("");

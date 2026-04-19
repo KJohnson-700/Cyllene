@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Mic, Send, Square, Volume2, VolumeX, X, Copy, Check } from "lucide-react";
+import { Mic, Send, Square, Volume2, VolumeX, X } from "lucide-react";
 import { useRunStream } from "@/hooks/useRunStream";
 import { useSpeechInput } from "@/hooks/useSpeechInput";
 import { useTTS } from "@/hooks/useTTS";
@@ -11,8 +11,6 @@ import {
   loadPreference,
   savePreference,
   setMainButton,
-  showConfirm,
-  writeClipboard,
   requestFullscreen,
   exitFullscreen,
   isFullscreen,
@@ -21,10 +19,13 @@ import {
 export function ChatPage() {
   const [input, setInput] = useState("");
   const [openMicEnabled, setOpenMicEnabled] = useState(false);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const { messages, agentState, activeTool, tokenCount, isRunning, error, sendMessage, cancel, clearMessages } =
+  const [showInput, setShowInput] = useState(false);
+
+  const { messages, agentState, activeTool, tokenCount, isRunning, error, sendMessage, cancel } =
     useRunStream();
+
   const { speak, stop, toggle, speaking, enabled: ttsEnabled, amplitude } = useTTS();
+
   const {
     supported: speechSupported,
     listening,
@@ -33,18 +34,16 @@ export function ChatPage() {
     start: startListening,
     stop: stopListening,
   } = useSpeechInput();
+
   const weather = useWeather();
   const orientation = useTelegramOrientation();
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const spokenIdsRef = useRef<Set<string>>(new Set());
-  const listeningRef = useRef(false);
-  const transcriptRef = useRef("");
 
-  // Auto-scroll on new messages
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  const spokenIdsRef = useRef<Set<string>>(new Set());
+  const transcriptRef = useRef("");
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Last assistant message — shown as the status line
+  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
 
   // Speak assistant messages when streaming finishes
   useEffect(() => {
@@ -55,6 +54,17 @@ export function ChatPage() {
     spokenIdsRef.current.add(last.id);
     speak(last.content);
   }, [isRunning, messages, speak]);
+
+  // Open mic auto-restart — after agent finishes + TTS done, listen again
+  useEffect(() => {
+    if (!openMicEnabled || isRunning || speaking || listening) return;
+    const last = messages.at(-1);
+    if (!last || last.role !== "assistant") return;
+    const timer = setTimeout(() => {
+      if (!isRunning && !speaking && !listening) startListening();
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [isRunning, speaking, listening, openMicEnabled, messages, startListening]);
 
   const handleCancel = useCallback(() => {
     stopListening();
@@ -70,44 +80,57 @@ export function ChatPage() {
     haptic.impact("light");
     transcriptRef.current = "";
     setInput("");
+    setShowInput(false);
     await sendMessage(text);
   }, [input, isRunning, stopListening, stop, sendMessage]);
 
   const handleMicToggle = useCallback(() => {
     if (!speechSupported || isRunning) return;
     haptic.selection();
-    if (listening) { stopListening(); return; }
+    if (listening) {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      stopListening();
+      return;
+    }
     stop();
     startListening();
   }, [speechSupported, isRunning, listening, stopListening, stop, startListening]);
 
+  // Sync interim transcript to input while listening
   useEffect(() => {
     if (!listening) return;
     setInput(interimTranscript);
     transcriptRef.current = interimTranscript;
   }, [interimTranscript, listening]);
 
+  // Load open mic pref
   useEffect(() => {
     loadPreference("cyllene:open-mic-enabled").then((v) => {
       if (v === "true") setOpenMicEnabled(true);
     });
   }, []);
 
+  // Save open mic pref
   useEffect(() => {
     savePreference("cyllene:open-mic-enabled", String(openMicEnabled));
   }, [openMicEnabled]);
 
+  // Open mic silence timer — send after 2.2 s of no new transcript while listening
   useEffect(() => {
-    const justStopped = listeningRef.current && !listening;
-    listeningRef.current = listening;
-    if (!justStopped || !openMicEnabled || isRunning) return;
-    const text = (transcriptRef.current || input).trim();
+    if (!openMicEnabled || !listening) {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      return;
+    }
+    const text = interimTranscript.trim();
     if (!text) return;
-    const captured = handleSend;
-    setTimeout(() => {
-      if (!isRunning && text === (transcriptRef.current || input).trim()) void captured();
-    }, 120);
-  }, [handleSend, input, isRunning, listening, openMicEnabled]);
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    silenceTimerRef.current = setTimeout(() => {
+      void handleSend();
+    }, 2200);
+    return () => {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    };
+  }, [interimTranscript, listening, openMicEnabled, handleSend]);
 
   const handleOpenMicToggle = useCallback(() => {
     haptic.selection();
@@ -121,23 +144,6 @@ export function ChatPage() {
     [handleSend],
   );
 
-  // Telegram native confirm before clearing
-  const handleClear = useCallback(async () => {
-    haptic.impact("light");
-    const confirmed = await showConfirm("Clear all messages?");
-    if (confirmed) { haptic.notification("success"); clearMessages(); }
-  }, [clearMessages]);
-
-  // Copy message text to clipboard
-  const handleCopy = useCallback(async (id: string, content: string) => {
-    const ok = await writeClipboard(content);
-    if (ok) {
-      haptic.impact("light");
-      setCopiedId(id);
-      setTimeout(() => setCopiedId(null), 1800);
-    }
-  }, []);
-
   // Double-tap face → toggle fullscreen
   const handleFaceDoubleTap = useCallback(() => {
     haptic.impact("medium");
@@ -145,6 +151,7 @@ export function ChatPage() {
     else requestFullscreen();
   }, []);
 
+  // Telegram main button
   useEffect(() => {
     const hasInput = !!input.trim();
     if (!hasInput && !isRunning) return setMainButton({ text: "", visible: false });
@@ -160,146 +167,68 @@ export function ChatPage() {
     });
   }, [handleSend, handleCancel, input, isRunning]);
 
+  // Decide which text to show in the status bubble
+  const statusText = (() => {
+    if (listening && interimTranscript) return interimTranscript;
+    if (isRunning && lastAssistant?.content) return lastAssistant.content;
+    if (!isRunning && lastAssistant?.content) return lastAssistant.content;
+    return null;
+  })();
+
+  const statusRole: "user" | "assistant" | "interim" = listening && interimTranscript
+    ? "interim"
+    : lastAssistant
+    ? "assistant"
+    : "assistant";
+
   return (
-    <div className="flex flex-col h-full">
-      {/* Header: MatrixFace */}
-      <div className="px-2 pt-1 pb-2 border-b border-white/8">
+    <div className="flex flex-col h-full bg-transparent select-none">
+
+      {/* ── GhostFace — fills all available vertical space ── */}
+      <div className="flex-1 min-h-0 flex flex-col">
         <GhostFace
-          agentState={agentState}
+          agentState={speaking ? "responding" : agentState}
           activeTool={activeTool}
           tokenCount={tokenCount}
           amplitude={amplitude}
           weather={weather}
           orientation={orientation.supported ? orientation : null}
           onDoubleTap={handleFaceDoubleTap}
+          fillContainer
         />
-
-        {/* Controls row */}
-        <div className="flex items-center justify-between px-3 -mt-1">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={toggle}
-              title={ttsEnabled ? "Mute voice" : "Enable voice"}
-              className={`flex items-center gap-1.5 text-[11px] font-mono px-2 py-1 rounded-lg border transition-colors ${
-                ttsEnabled
-                  ? "border-cyan-500/30 text-cyan-400 bg-cyan-500/10"
-                  : "border-white/10 text-white/30"
-              }`}
-            >
-              {ttsEnabled ? <Volume2 size={12} /> : <VolumeX size={12} />}
-              {speaking ? "speaking…" : ttsEnabled ? "voice on" : "voice off"}
-            </button>
-
-            {speechSupported && (
-              <button
-                onClick={handleOpenMicToggle}
-                title={openMicEnabled ? "Disable Open Mic" : "Enable Open Mic"}
-                className={`flex items-center gap-1.5 text-[11px] font-mono px-2 py-1 rounded-lg border transition-colors ${
-                  openMicEnabled
-                    ? "border-emerald-500/30 text-emerald-300 bg-emerald-500/10"
-                    : "border-white/10 text-white/30"
-                }`}
-              >
-                <Mic size={12} />
-                {openMicEnabled ? "open mic" : "mic off"}
-              </button>
-            )}
-          </div>
-
-          {messages.length > 0 && (
-            <button
-              onClick={handleClear}
-              className="text-[10px] text-white/20 hover:text-white/50 font-mono transition-colors"
-            >
-              clear
-            </button>
-          )}
-        </div>
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
-            <p className="text-white/20 text-sm font-mono">say something</p>
-            <div className="flex flex-col gap-1">
-              {["what did you work on today?", "any cron jobs due?", "show me my sessions"].map((s) => (
-                <button
-                  key={s}
-                  onClick={() => { setInput(s); inputRef.current?.focus(); }}
-                  className="text-xs text-white/30 hover:text-white/60 transition-colors font-mono border border-white/8 hover:border-white/20 rounded px-3 py-1"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {messages.map((msg) => (
+      {/* ── Status bubble — last reply or interim transcript ── */}
+      <div className="px-5 pb-2 min-h-[56px] flex items-end">
+        {statusText ? (
           <div
-            key={msg.id}
-            className={`group flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+            className={`w-full rounded-2xl px-4 py-2.5 text-[13px] leading-snug font-mono transition-colors ${
+              statusRole === "interim"
+                ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-200/80"
+                : "bg-white/5 border border-white/8 text-white/60"
+            }`}
+            style={{ maxHeight: "72px", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}
           >
-            <div className="relative max-w-[85%]">
-              <div
-                className={`rounded-2xl px-3 py-2 text-sm leading-relaxed ${
-                  msg.role === "user"
-                    ? "bg-cyan-500/20 text-white border border-cyan-500/20 rounded-br-sm"
-                    : "bg-white/5 text-white/80 border border-white/8 rounded-bl-sm"
-                }`}
-              >
-                {msg.content || (
-                  <span className="inline-flex gap-1 text-white/30">
-                    <span className="animate-bounce" style={{ animationDelay: "0ms" }}>·</span>
-                    <span className="animate-bounce" style={{ animationDelay: "150ms" }}>·</span>
-                    <span className="animate-bounce" style={{ animationDelay: "300ms" }}>·</span>
-                  </span>
-                )}
-              </div>
-
-              {/* Copy button — appears on hover/focus */}
-              {msg.content && (
-                <button
-                  onClick={() => handleCopy(msg.id, msg.content)}
-                  className={`absolute -top-1 ${msg.role === "user" ? "-left-7" : "-right-7"} opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-white/30 hover:text-white/70`}
-                  title="Copy"
-                >
-                  {copiedId === msg.id ? <Check size={11} /> : <Copy size={11} />}
-                </button>
-              )}
-            </div>
+            {statusText}
           </div>
-        ))}
-
-        {error && (
-          <div className="text-center text-red-400/70 text-xs font-mono py-1">{error}</div>
+        ) : (
+          <div className="w-full text-center text-white/15 text-[11px] font-mono py-1">
+            {error
+              ? <span className="text-red-400/70">{error}</span>
+              : speechError
+              ? <span className="text-yellow-400/60">{speechError}</span>
+              : isRunning
+              ? "thinking…"
+              : "say something or tap the keyboard"}
+          </div>
         )}
-        {speechError && !error && (
-          <div className="text-center text-yellow-300/70 text-xs font-mono py-1">{speechError}</div>
-        )}
-
-        <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
-      <div className="px-4 py-3 border-t border-white/8">
-        {speechSupported && (
-          <div className="mb-2 flex items-center justify-between text-[10px] font-mono">
-            <span className={listening ? "text-emerald-300/80" : "text-white/25"}>
-              {listening ? "listening…" : openMicEnabled ? "open mic armed" : "tap mic to talk"}
-            </span>
-            {listening && (
-              <span className="text-white/35">
-                {openMicEnabled ? "stop speaking → auto-send" : "tap again to stop"}
-              </span>
-            )}
-          </div>
-        )}
-
-        <div className="flex items-end gap-2">
+      {/* ── Collapsible text input ── */}
+      {showInput && (
+        <div className="px-4 pb-2 flex items-end gap-2">
           <textarea
-            ref={inputRef}
+            autoFocus
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -307,23 +236,8 @@ export function ChatPage() {
             placeholder="message hermes…"
             disabled={isRunning}
             className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/20 resize-none focus:outline-none focus:border-cyan-500/40 transition-colors disabled:opacity-40 font-mono"
-            style={{ maxHeight: "120px", overflowY: "auto" }}
+            style={{ maxHeight: "100px", overflowY: "auto" }}
           />
-
-          {speechSupported && !isRunning && (
-            <button
-              onClick={handleMicToggle}
-              className={`w-9 h-9 flex items-center justify-center rounded-xl border transition-colors shrink-0 ${
-                listening
-                  ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
-                  : "bg-white/5 border-white/10 text-white/50 hover:text-white/80 hover:border-white/20"
-              }`}
-              title={listening ? "Stop listening" : "Start voice input"}
-            >
-              {listening ? <Square size={15} /> : <Mic size={16} />}
-            </button>
-          )}
-
           {isRunning ? (
             <button
               onClick={handleCancel}
@@ -341,7 +255,99 @@ export function ChatPage() {
             </button>
           )}
         </div>
+      )}
+
+      {/* ── Controls bar ── */}
+      <div className="px-4 pb-4 flex items-center justify-between gap-3">
+
+        {/* Left: TTS toggle + open mic */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggle}
+            title={ttsEnabled ? "Mute voice" : "Enable voice"}
+            className={`flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1.5 rounded-xl border transition-colors ${
+              ttsEnabled
+                ? "border-cyan-500/30 text-cyan-400 bg-cyan-500/10"
+                : "border-white/10 text-white/30"
+            }`}
+          >
+            {ttsEnabled ? <Volume2 size={13} /> : <VolumeX size={13} />}
+            {speaking ? "speaking…" : ttsEnabled ? "voice on" : "voice off"}
+          </button>
+
+          {speechSupported && (
+            <button
+              onClick={handleOpenMicToggle}
+              title={openMicEnabled ? "Disable Open Mic" : "Enable Open Mic"}
+              className={`flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1.5 rounded-xl border transition-colors ${
+                openMicEnabled
+                  ? "border-emerald-500/30 text-emerald-300 bg-emerald-500/10"
+                  : "border-white/10 text-white/30"
+              }`}
+            >
+              <Mic size={13} />
+              {openMicEnabled ? "open mic" : "mic off"}
+            </button>
+          )}
+        </div>
+
+        {/* Right: mic button + keyboard toggle */}
+        <div className="flex items-center gap-2">
+          {/* Keyboard / text input toggle */}
+          <button
+            onClick={() => { haptic.selection(); setShowInput((v) => !v); }}
+            className={`w-9 h-9 flex items-center justify-center rounded-xl border transition-colors shrink-0 ${
+              showInput
+                ? "bg-white/10 border-white/20 text-white/70"
+                : "bg-white/5 border-white/10 text-white/35 hover:text-white/60"
+            }`}
+            title="Type a message"
+          >
+            {/* keyboard icon via SVG */}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="6" width="20" height="12" rx="2"/>
+              <line x1="6" y1="10" x2="6" y2="10"/>
+              <line x1="10" y1="10" x2="10" y2="10"/>
+              <line x1="14" y1="10" x2="14" y2="10"/>
+              <line x1="18" y1="10" x2="18" y2="10"/>
+              <line x1="6" y1="14" x2="6" y2="14"/>
+              <line x1="18" y1="14" x2="18" y2="14"/>
+              <line x1="10" y1="14" x2="14" y2="14"/>
+            </svg>
+          </button>
+
+          {/* Main mic / cancel button */}
+          {isRunning ? (
+            <button
+              onClick={handleCancel}
+              className="w-12 h-12 flex items-center justify-center rounded-2xl bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30 transition-colors shrink-0"
+            >
+              <X size={20} />
+            </button>
+          ) : speechSupported ? (
+            <button
+              onClick={handleMicToggle}
+              className={`w-12 h-12 flex items-center justify-center rounded-2xl border transition-colors shrink-0 ${
+                listening
+                  ? "bg-emerald-500/25 border-emerald-500/50 text-emerald-300 animate-pulse"
+                  : "bg-white/8 border-white/15 text-white/60 hover:text-white/90 hover:border-white/30"
+              }`}
+              title={listening ? "Stop listening" : "Speak"}
+            >
+              {listening ? <Square size={18} /> : <Mic size={20} />}
+            </button>
+          ) : null}
+        </div>
       </div>
+
+      {/* ── Listening status strip ── */}
+      {speechSupported && listening && (
+        <div className="px-5 pb-3 -mt-2">
+          <div className="text-center text-[10px] font-mono text-emerald-300/60">
+            {openMicEnabled ? "listening · auto-send on silence" : "listening · tap to stop"}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,30 +1,39 @@
 {
+  "rewrites": [
+    {
+      "source": "/v1/:path*",
+      "destination": "https://hesitatively-unforcible-latanya.ngrok-free.dev/v1/:path*"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://hesitatively-unforcible-latanya.ngrok-free.dev/api/:path*"
+    },
+    {
+      "source": "/health",
+      "destination": "https://hesitatively-unforcible-latanya.ngrok-free.dev/health"
+    },
+    {
+      "source": "/obsidian/:path*",
+      "destination": "https://hesitatively-unforcible-latanya.ngrok-free.dev/obsidian/:path*"
+    }
+  ],
   "headers": [
     {
       "source": "/",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-cache, no-store, must-revalidate"
-        }
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
       ]
     },
     {
       "source": "/index.html",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-cache, no-store, must-revalidate"
-        }
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
       ]
     },
     {
       "source": "/assets/(.*)",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=31536000, immutable"
-        }
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
       ]
     }
   ]
