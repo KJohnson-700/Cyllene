@@ -1,214 +1,17 @@
-import { useState, useEffect, useCallback, useRef, useId } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { AgentState } from "@/hooks/useRunStream";
-import type { WeatherCondition } from "@/hooks/useWeather";
 import { haptic } from "@/lib/telegram";
-import { CylleneWeatherAmbience } from "@/components/CylleneWeatherAmbience";
-
-type DayPhase = "night" | "morning" | "midday" | "evening";
-
-function dayPhaseFromHour(h: number): DayPhase {
-  if (h >= 22 || h < 6) return "night";
-  if (h < 11) return "morning";
-  if (h < 17) return "midday";
-  return "evening";
-}
-
-const DEFAULT_WEATHER_SWAY: WeatherCondition = "cloudy";
-
-const WEATHER_CONDITIONS: readonly WeatherCondition[] = [
-  "sunny", "cloudy", "rain", "snow", "thunder", "fog", "windy",
-];
-
-function isWeatherCondition(s: string): s is WeatherCondition {
-  return (WEATHER_CONDITIONS as readonly string[]).includes(s);
-}
 
 type DragonMood = "neutral" | "excited" | "alert" | "sleepy" | "happy" | "petted";
 type EvolutionStage = "hatchling" | "juvenile" | "adult" | "elder" | "legendary";
 
-/** Vector companion — chibi dragon with clear hatchling→legendary read (not an egg). */
-function CyllenePetGraphic({
-  stage,
-  mood,
-  fireColor,
-}: {
-  stage: EvolutionStage;
-  mood: DragonMood;
-  fireColor: string;
-}) {
-  const safe = useId().replace(/:/g, "");
-  const bodyId = `pet-body-${safe}`;
-  const fireId = `pet-fire-${safe}`;
-  const wingId = `pet-wing-${safe}`;
-
-  const rank =
-    stage === "hatchling" ? 0
-    : stage === "juvenile" ? 1
-    : stage === "adult" ? 2
-    : stage === "elder" ? 3
-    : 4;
-
-  const bodyRx = 26 + rank * 2.2;
-  const bodyRy = 21 + rank * 1.6;
-  const headRx = 14 + rank * 0.85;
-  const hornH = 5.5 + rank * 2.4;
-  const wingLift = rank * 1.5;
-  const eyeR = rank === 0 ? 4.1 : 3.35;
-  const scale = 0.9 + rank * 0.028;
-  const sleepy = mood === "sleepy";
-  const perk = mood === "excited" || mood === "petted";
-
-  return (
-    <svg
-      viewBox="0 0 120 118"
-      className="h-[4.75rem] w-[4.75rem] sm:h-[5.5rem] sm:w-[5.5rem] transition-transform duration-300 drop-shadow-[0_8px_32px_rgba(45,212,191,0.42)]"
-      style={{
-        transform: `scale(${perk ? 1.1 * scale : scale})`,
-        filter:
-          mood === "alert"
-            ? "hue-rotate(292deg) saturate(1.18) drop-shadow(0 0 12px rgba(248,113,113,0.35))"
-            : mood === "sleepy"
-              ? "brightness(0.8) saturate(0.88)"
-              : "none",
-      }}
-      aria-hidden
-    >
-      <defs>
-        <linearGradient id={bodyId} x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#5eead4" />
-          <stop offset="45%" stopColor="#14b8a6" />
-          <stop offset="100%" stopColor="#0d5c55" />
-        </linearGradient>
-        <linearGradient id={wingId} x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#0d9488" stopOpacity={0.95} />
-          <stop offset="100%" stopColor="#115e59" stopOpacity={0.92} />
-        </linearGradient>
-        <radialGradient id={fireId} cx="45%" cy="40%" r="65%">
-          <stop offset="0%" stopColor={fireColor} stopOpacity={0.85} />
-          <stop offset="70%" stopColor={fireColor} stopOpacity={0.35} />
-          <stop offset="100%" stopColor={fireColor} stopOpacity={0.08} />
-        </radialGradient>
-      </defs>
-
-      {/* Tail — S-curve, longer with rank */}
-      <path
-        fill={`url(#${bodyId})`}
-        stroke="#0f766e"
-        strokeOpacity={0.35}
-        strokeWidth={0.45}
-        d={`M14 ${78 - rank} C2 ${62 - rank} 4 ${44 - rank * 0.5} 18 ${36 + rank * 0.3} C24 ${52 + rank} 30 ${68 + rank * 0.5} 38 ${76 + rank * 0.3} C28 ${84 + rank} 18 ${82 + rank} 14 ${78 - rank}Z`}
-      />
-
-      {/* Far wing */}
-      <path
-        fill={`url(#${wingId})`}
-        d={`M30 ${46 - wingLift} Q6 ${28 - wingLift} 14 ${10 + rank} Q34 ${18 - wingLift} 44 ${40 - wingLift} Z`}
-        opacity={0.82}
-      />
-
-      {/* Body */}
-      <ellipse
-        cx="54"
-        cy="66"
-        rx={bodyRx}
-        ry={bodyRy}
-        fill={`url(#${bodyId})`}
-        stroke="#0f766e"
-        strokeOpacity={0.28}
-        strokeWidth={0.5}
-      />
-
-      {/* Back ridges (juvenile+) */}
-      {rank >= 1 && (
-        <g fill="#134e4a" opacity={0.85}>
-          <path d={`M${38 - rank} ${48 - rank * 0.4} l4 -${5 + rank * 0.3} l4 ${5 + rank * 0.3}z`} />
-          <path d={`M${48 - rank} ${44 - rank * 0.5} l5 -${6 + rank * 0.4} l5 ${6 + rank * 0.4}z`} />
-          {rank >= 3 && <path d={`M${58 - rank} ${42 - rank * 0.5} l6 -${7 + rank * 0.3} l6 ${7 + rank * 0.3}z`} />}
-        </g>
-      )}
-
-      {/* Belly + core glow */}
-      <ellipse cx="54" cy="70" rx={bodyRx * 0.48} ry={bodyRy * 0.42} fill={`url(#${fireId})`} opacity={0.72} />
-      <ellipse cx="54" cy="71" rx={bodyRx * 0.28} ry={bodyRy * 0.22} fill={fireColor} opacity={0.28} />
-
-      {/* Neck */}
-      <path
-        fill={`url(#${bodyId})`}
-        d="M58 42 C68 28 80 22 86 32 C90 42 84 52 74 54 C66 50 58 46 58 42Z"
-      />
-
-      {/* Head */}
-      <ellipse cx="88" cy="34" rx={headRx} ry={12.5 + rank * 0.35} fill={`url(#${bodyId})`} stroke="#0f766e" strokeOpacity={0.22} strokeWidth={0.45} />
-
-      {/* Snout */}
-      <ellipse cx="106" cy="36" rx={12 + rank * 0.25} ry={9.5} fill={`url(#${bodyId})`} />
-      <ellipse cx="114" cy="36" rx="2.1" ry="1.6" fill="#042f2e" opacity={0.55} />
-      <ellipse cx="110" cy="35" rx="1.5" ry="1.2" fill="#042f2e" opacity={0.45} />
-
-      {/* Near wing */}
-      <path
-        fill={`url(#${wingId})`}
-        d={`M42 ${50 - wingLift} Q18 ${34 - wingLift} 22 ${12 + rank * 0.8} Q40 ${22 - wingLift} 52 ${46 - wingLift} Z`}
-        opacity={0.94}
-      />
-
-      {/* Horns */}
-      <path fill="#ecfdf5" d={`M78 ${22 - rank * 0.2} L82 ${22 - hornH} L86 ${22 - rank * 0.1} Z`} opacity={0.95} />
-      <path fill="#ecfdf5" d={`M90 ${20 - rank * 0.2} L96 ${18 - hornH * 1.05} L98 ${20 - rank * 0.15} Z`} opacity={0.95} />
-
-      {/* Eye */}
-      {!sleepy ? (
-        <g>
-          <circle cx="98" cy="30" r={eyeR} fill="#042f2e" />
-          <circle cx="99.3" cy="28.6" r={1.35} fill="#ecfdf5" opacity={0.94} />
-        </g>
-      ) : (
-        <path
-          stroke="#042f2e"
-          strokeWidth="2.4"
-          strokeLinecap="round"
-          fill="none"
-          d="M92 30 Q98 27 104 30"
-        />
-      )}
-
-      {/* Feet */}
-      <ellipse cx="38" cy="88" rx="7" ry="5" fill="#0f766e" opacity={0.55} />
-      <ellipse cx="58" cy="90" rx="7.5" ry="5" fill="#0f766e" opacity={0.55} />
-
-      {/* Legendary halo */}
-      {stage === "legendary" && (
-        <g opacity={0.92}>
-          <circle cx="44" cy="14" r="2.6" fill="#fde68a" />
-          <circle cx="62" cy="8" r="1.9" fill="#fde68a" />
-          <circle cx="30" cy="22" r="1.5" fill="#fde68a" />
-          <path d="M72 6l1.2 3.5h3.8l-3 2.2 1.1 3.6-3-2.1-3 2.1 1.1-3.6-3-2.2h3.8z" fill="#fbbf24" opacity={0.85} />
-        </g>
-      )}
-    </svg>
-  );
-}
-
-/** Tiny vector flames — matches chosen fire color, no emoji font dependency. */
-function FireBurstSvg({ color }: { color: string }) {
-  const flame = (
-    <path
-      fill={color}
-      d="M12 28c-4-6-6-12-4-18 1-4 3-6 4-8 1 3 3 6 4 10 1-4 3-7 6-9 0 8-2 16-10 25z"
-      opacity={0.95}
-    />
-  );
-  return (
-    <div className="flex gap-1 h-7 items-end justify-center" style={{ filter: `drop-shadow(0 0 8px ${color}55)` }} aria-hidden>
-      <svg className="w-[22px] h-[26px]" viewBox="0 0 24 32" aria-hidden>
-        {flame}
-      </svg>
-      <svg className="w-[22px] h-[26px]" viewBox="0 0 24 32" aria-hidden>
-        {flame}
-      </svg>
-    </div>
-  );
-}
+const STAGE_EMOJI: Record<EvolutionStage, string> = {
+  hatchling:  "🥚",
+  juvenile:   "🐉",
+  adult:      "🐲",
+  elder:      "✨🐲",
+  legendary:  "🌟🐲",
+};
 
 const MOOD_EMOJI: Record<DragonMood, string> = {
   neutral:  "😐",
@@ -273,72 +76,14 @@ export function DragonCompanion({ agentState, weather }: Props) {
   const [fireColor, setFireColor]       = useState(saved?.color ?? "#ff6600");
   const [showColors, setShowColors]     = useState(false);
   const [particles, setParticles]       = useState<Particle[]>([]);
-  const [clock, setClock]               = useState(() => new Date());
-  const [thunderFlash, setThunderFlash] = useState(false);
 
   const idleTimerRef  = useRef<ReturnType<typeof setTimeout>>(undefined);
   const moodTimerRef  = useRef<ReturnType<typeof setTimeout>>(undefined);
   const holdTimerRef  = useRef<ReturnType<typeof setTimeout>>(undefined);
   const holdFiredRef  = useRef(false);
   const colorHideRef  = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const thunderRef    = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const thunderOffRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const prevThunderFlash = useRef(false);
 
   const stage = computeStage(interactions, consecutiveDays);
-
-  const wx =
-    weather?.condition && isWeatherCondition(weather.condition)
-      ? weather.condition
-      : null;
-  const swayKey = wx ?? DEFAULT_WEATHER_SWAY;
-  const dayPhase = dayPhaseFromHour(clock.getHours());
-  const timeShellClass =
-    dayPhase === "midday" ? "cyllene-time-midday" : `cyllene-time-${dayPhase}`;
-
-  // Wall-clock tick (day/night shell on .cyllene-pet-scene)
-  useEffect(() => {
-    const id = window.setInterval(() => setClock(new Date()), 30_000);
-    return () => clearInterval(id);
-  }, []);
-
-  // Thunder: lightning flashes + Telegram haptic on strike (rising edge)
-  useEffect(() => {
-    clearTimeout(thunderRef.current);
-    clearTimeout(thunderOffRef.current);
-    if (wx !== "thunder") {
-      setThunderFlash(false);
-      return;
-    }
-    let cancelled = false;
-    function schedule() {
-      thunderRef.current = window.setTimeout(() => {
-        if (cancelled) return;
-        setThunderFlash(true);
-        thunderOffRef.current = window.setTimeout(() => {
-          if (!cancelled) setThunderFlash(false);
-        }, 70 + Math.random() * 60);
-        schedule();
-      }, 2200 + Math.random() * 5200);
-    }
-    schedule();
-    return () => {
-      cancelled = true;
-      clearTimeout(thunderRef.current);
-      clearTimeout(thunderOffRef.current);
-    };
-  }, [wx]);
-
-  useEffect(() => {
-    if (wx !== "thunder") {
-      prevThunderFlash.current = false;
-      return;
-    }
-    if (thunderFlash && !prevThunderFlash.current) {
-      haptic.notification("warning");
-    }
-    prevThunderFlash.current = thunderFlash;
-  }, [thunderFlash, wx]);
 
   // ── Agent state → mood ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -445,9 +190,9 @@ export function DragonCompanion({ agentState, weather }: Props) {
 
   // ── Weather → wings ─────────────────────────────────────────────────────────
   const wingsLabel =
-    wx === "rain" || wx === "snow" ? "🫰" :
-    wx === "sunny"                 ? "🦅" :
-    wx === "windy"                 ? "🌬️" : null;
+    weather?.condition === "rain" || weather?.condition === "snow" ? "🫰" :
+    weather?.condition === "sunny"                                 ? "🦅" :
+    weather?.condition === "windy"                                 ? "🌬️" : null;
 
   return (
     <div className="flex flex-col items-center gap-5 select-none">
@@ -464,20 +209,17 @@ export function DragonCompanion({ agentState, weather }: Props) {
         tabIndex={0}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") pet(); }}
       >
-        <div className={`cyllene-pet-scene ${timeShellClass}`}>
-          <div className="cyllene-pet-dragon-stack">
-            <div className={`cyllene-pet-outer-breathe cyllene-sway-${swayKey}`}>
-              <div className="cyllene-pet-weather-inner">
-                <CyllenePetGraphic stage={stage} mood={mood} fireColor={fireColor} />
-              </div>
-            </div>
-          </div>
-
-          <CylleneWeatherAmbience
-            condition={wx}
-            tempF={weather?.temp ?? null}
-            thunderFlash={thunderFlash}
-          />
+        {/* Dragon emoji */}
+        <div
+          className="text-7xl transition-all duration-300"
+          style={{
+            filter:    mood === "alert"  ? "hue-rotate(340deg)"
+                     : mood === "sleepy" ? "brightness(0.65)"
+                     : "none",
+            transform: mood === "excited" || mood === "petted" ? "scale(1.12)" : "scale(1)",
+          }}
+        >
+          {STAGE_EMOJI[stage]}
         </div>
 
         {/* Mood badge */}
@@ -485,8 +227,8 @@ export function DragonCompanion({ agentState, weather }: Props) {
 
         {/* Fire burst */}
         {(mood === "excited" || mood === "petted") && (
-          <div className="animate-bounce">
-            <FireBurstSvg color={fireColor} />
+          <div className="flex gap-1 animate-bounce" style={{ color: fireColor }}>
+            🔥🔥
           </div>
         )}
 
