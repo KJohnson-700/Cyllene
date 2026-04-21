@@ -44,6 +44,13 @@ export interface RunCreated {
   run_id: string;
 }
 
+export interface TelegramMiniappResponse {
+  ok: boolean;
+  reply?: string;
+  error?: string;
+  detail?: string;
+}
+
 export interface ObsidianStatus {
   ok: boolean;
   available: boolean;
@@ -108,6 +115,18 @@ export async function startRun(prompt: string, sessionId?: string): Promise<RunC
       input: prompt,
       ...(sessionId ? { session_id: sessionId } : {}),
     }),
+  });
+}
+
+/** Send a Mini App turn through gateway Telegram session path. */
+export async function telegramMiniappStream(
+  text: string,
+  initData: string
+): Promise<TelegramMiniappResponse> {
+  return fetchJSON<TelegramMiniappResponse>(apiUrl("/v1/telegram/stream"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, init_data: initData }),
   });
 }
 

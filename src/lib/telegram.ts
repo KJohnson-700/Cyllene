@@ -377,9 +377,19 @@ export function setBottomBarColor(color: string) { twa?.setBottomBarColor?.(colo
 // ── Viewport / safe areas ─────────────────────────────────────────────────────
 
 export function getViewport() {
+  const winHeight = Math.max(
+    window.innerHeight || 0,
+    document.documentElement?.clientHeight || 0,
+  );
+  const rawHeight = twa?.viewportHeight ?? 0;
+  const rawStableHeight = twa?.viewportStableHeight ?? 0;
+
+  const height = rawHeight > 0 ? rawHeight : winHeight;
+  const stableHeight = rawStableHeight > 0 ? rawStableHeight : height;
+
   return {
-    height: twa?.viewportHeight ?? window.innerHeight,
-    stableHeight: twa?.viewportStableHeight ?? window.innerHeight,
+    height: Math.max(1, height),
+    stableHeight: Math.max(1, stableHeight),
     isExpanded: twa?.isExpanded ?? false,
     isFullscreen: twa?.isFullscreen ?? false,
   };
@@ -474,22 +484,40 @@ export function setMainButton(options: MainButtonOptions) {
   const btn = twa?.MainButton;
   if (!btn) return () => {};
 
-  // setText throws "Bottom button text is required" on empty string
-  if (options.text) btn.setText(options.text);
-  btn.setParams({
-    color: options.color,
-    text_color: options.textColor,
-    has_shine_effect: options.hasShineEffect,
-    is_active: options.enabled ?? true,
-    is_visible: options.visible ?? true,
-  });
+  const safe = (fn: () => void) => {
+    try { fn(); } catch (err) { console.warn("MainButton call failed:", err); }
+  };
 
-  if (options.enabled === false) btn.disable(); else btn.enable();
-  if (options.loading) btn.showProgress(true); else btn.hideProgress();
-  if (options.visible === false) btn.hide(); else btn.show();
-  if (options.onClick) btn.onClick(options.onClick);
+  const visible = options.visible ?? true;
+  const enabled = options.enabled ?? true;
+  const loading = !!options.loading;
+  const text = (options.text ?? "").trim();
+  const onClick = options.onClick;
 
-  return () => { if (options.onClick) btn.offClick(options.onClick); };
+  // Hidden buttons should avoid text/params writes that can throw on stricter clients.
+  if (!visible) {
+    safe(() => btn.hideProgress());
+    safe(() => btn.hide());
+    if (onClick) safe(() => btn.offClick(onClick));
+    return () => { if (onClick) safe(() => btn.offClick(onClick)); };
+  }
+
+  // Avoid empty text, which can trigger WebAppBottomButtonParamInvalid.
+  safe(() => btn.setText(text || "Continue"));
+
+  // Keep params minimal and validated for compatibility across Telegram versions.
+  const params: Record<string, unknown> = { is_active: enabled, is_visible: visible };
+  if (options.color && /^#[0-9a-fA-F]{6}$/.test(options.color)) params.color = options.color;
+  if (options.textColor && /^#[0-9a-fA-F]{6}$/.test(options.textColor)) params.text_color = options.textColor;
+  if (typeof options.hasShineEffect === "boolean") params.has_shine_effect = options.hasShineEffect;
+  safe(() => btn.setParams(params));
+
+  if (enabled) safe(() => btn.enable()); else safe(() => btn.disable());
+  if (loading) safe(() => btn.showProgress(true)); else safe(() => btn.hideProgress());
+  safe(() => btn.show());
+  if (onClick) safe(() => btn.onClick(onClick));
+
+  return () => { if (onClick) safe(() => btn.offClick(onClick)); };
 }
 
 // ── Storage: CloudStorage (1024 keys, 4096 bytes/value) ───────────────────────

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
+  <rect width="100%" height="100%" fill="#001207"/>
+  <g fill="#3eff9a" font-family="monospace" font-size="28">
+    <text x="40" y="80">Matrix Face — Placeholder</text>
+    <text x="40" y="120">(Replace with provided design image)</text>
+  </g>
+  <rect x="32" y="150" width="1136" height="588" rx="8" ry="8" fill="#052014" stroke="#0aa86b" stroke-opacity="0.12"/>
+  <g fill="#0fa97a" font-family="monospace" font-size="16" opacity="0.9">
+    <text x="56" y="190">- Static / base state + talking frames grid</text>
+    <text x="56" y="216">- Use filename: matrix-face-1.png</text>
+  </g>
+</svg>

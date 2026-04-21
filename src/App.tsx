@@ -112,14 +112,20 @@ export default function App() {
   return (
     <div
       className={`app-shell flex flex-col text-white overflow-hidden ${fullscreen ? "app-shell--fullscreen" : ""}`}
+      style={{
+        height: fullscreen ? "100dvh" : "100dvh",
+        minHeight: "100vh",
+        width: "100%",
+        background: "linear-gradient(180deg, #05090f 0%, #060b12 100%)",
+      }}
     >
       {showSplash && <SplashScreen onDone={onSplashDone} />}
 
       {/* Page content */}
-      <div className="flex-1 overflow-hidden relative">
-        <div className={tab === "chat"      ? "h-full flex flex-col" : "hidden"}><ChatPage /></div>
-        <div className={tab === "dragon"    ? "h-full" : "hidden"}><DragonPage agentState={agentState} /></div>
-        <div className={tab === "dashboard" ? "h-full overflow-y-auto" : "hidden"}><DashboardPage /></div>
+      <div className="flex-1 min-h-0 overflow-hidden relative">
+        <div className={tab === "chat"      ? "h-full min-h-0 flex flex-col" : "hidden"}><ChatPage /></div>
+        <div className={tab === "dragon"    ? "h-full min-h-0" : "hidden"}><DragonPage agentState={agentState} /></div>
+        <div className={tab === "dashboard" ? "h-full min-h-0 overflow-y-auto" : "hidden"}><DashboardPage /></div>
       </div>
 
       {/* Bottom nav — hidden in fullscreen */}

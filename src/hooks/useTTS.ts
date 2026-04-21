@@ -5,6 +5,8 @@
  * amplitude signal (0..1) via AnalyserNode for mouth-sync in MatrixFace.
  *
  * Falls back to Web Speech API if /v1/tts fails (no amplitude in that case).
+ * Web Speech uses one pinned English voice so it does not drift between utterances.
+ * If MiniMax and Web Speech both run intermittently, voices still differ — fix proxy/API reliability for a single engine.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -15,6 +17,21 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
 function ttsUrl() {
   return `${API_BASE}/v1/tts`;
+}
+
+/** Deterministic pick: same voice across utterances (avoids browser default drift). */
+function pickStableWebSpeechVoice(): SpeechSynthesisVoice | null {
+  if (!("speechSynthesis" in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  if (!voices.length) return null;
+  const en = voices.filter((v) => v.lang.toLowerCase().startsWith("en"));
+  const pool = en.length ? en : [...voices];
+  pool.sort((a, b) => {
+    const byUri = a.voiceURI.localeCompare(b.voiceURI);
+    if (byUri !== 0) return byUri;
+    return a.name.localeCompare(b.name);
+  });
+  return pool[0] ?? null;
 }
 
 export function useTTS() {
@@ -29,6 +46,18 @@ export function useTTS() {
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const rafRef = useRef<number>(0);
   const currentUrlRef = useRef<string | null>(null);
+  /** Pinned once Web Speech voices load — avoids browser default flipping between utterances. */
+  const webSpeechVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
+
+  useEffect(() => {
+    if (!("speechSynthesis" in window)) return;
+    const pickVoice = () => {
+      webSpeechVoiceRef.current = pickStableWebSpeechVoice();
+    };
+    pickVoice();
+    window.speechSynthesis.addEventListener("voiceschanged", pickVoice);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", pickVoice);
+  }, []);
 
   // Clean up on unmount
   useEffect(() => {
@@ -136,8 +165,15 @@ export function useTTS() {
   function playViaWebSpeech(text: string): Promise<boolean> {
     return new Promise((resolve) => {
       if (!("speechSynthesis" in window)) return resolve(false);
+      if (!webSpeechVoiceRef.current) {
+        webSpeechVoiceRef.current = pickStableWebSpeechVoice();
+      }
       const utter = new SpeechSynthesisUtterance(text);
       utter.rate = 1.05;
+      utter.lang = webSpeechVoiceRef.current?.lang ?? "en-US";
+      if (webSpeechVoiceRef.current) {
+        utter.voice = webSpeechVoiceRef.current;
+      }
       utter.onend = () => resolve(true);
       utter.onerror = () => resolve(false);
       window.speechSynthesis.speak(utter);

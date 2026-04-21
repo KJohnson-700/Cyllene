@@ -39,3 +39,6 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+
+# Local scratch / screenshots (not for repo)
+tmp/

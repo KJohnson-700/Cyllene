@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { obsidianApi, startRun, streamRun, type RunEvent } from "@/lib/api";
+import { obsidianApi, startRun, streamRun, telegramMiniappStream, type RunEvent } from "@/lib/api";
 import {
   getOrCreateSessionId,
   saveMessages,
@@ -7,6 +7,7 @@ import {
   clearPersistedMessages,
 } from "@/lib/session";
 import { pushLogEvent } from "@/lib/eventLog";
+import { getInitData, isTelegram } from "@/lib/telegram";
 
 export type AgentState = "idle" | "reasoning" | "responding" | "alert";
 
@@ -105,6 +106,30 @@ export function useRunStream() {
     let run: { run_id: string };
     try {
       const promptWithMemory = await buildMemoryAwarePrompt(prompt);
+      if (isTelegram()) {
+        const initData = getInitData();
+        if (!initData) throw new Error("Telegram init data missing");
+        const miniapp = await telegramMiniappStream(promptWithMemory, initData);
+        if (!miniapp.ok) {
+          throw new Error(miniapp.detail || miniapp.error || "Miniapp bridge failed");
+        }
+        setState((s) => ({
+          ...s,
+          agentState: "idle",
+          activeTool: null,
+          isRunning: false,
+          messages: [
+            ...s.messages,
+            {
+              id: assistantIdRef.current,
+              role: "assistant",
+              content: miniapp.reply ?? "",
+              timestamp: Date.now(),
+            },
+          ],
+        }));
+        return;
+      }
       run = await startRun(promptWithMemory, sessionIdRef.current);
     } catch (err) {
       setState((s) => ({
