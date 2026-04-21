@@ -8,6 +8,9 @@ const API_KEY = import.meta.env.VITE_API_KEY ?? "";
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const WEB_BASE = import.meta.env.VITE_WEB_BASE ?? "";
 
+/** Avoid stale JSON/SSE responses from browser or intermediary caches (Telegram WebView, etc.). */
+const NO_STORE: RequestInit = { cache: "no-store" };
+
 function apiUrl(path: string) {
   return `${API_BASE}${path}`;
 }
@@ -30,7 +33,7 @@ function baseHeaders(extra?: HeadersInit): Headers {
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = baseHeaders(init?.headers);
-  const res = await fetch(url, { ...init, headers });
+  const res = await fetch(url, { ...NO_STORE, ...init, headers });
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`${res.status}: ${text}`);
@@ -142,6 +145,7 @@ export function streamRun(
   (async () => {
     try {
       const res = await fetch(apiUrl(`/v1/runs/${runId}/events`), {
+        ...NO_STORE,
         headers: baseHeaders({ Accept: "text/event-stream" }),
         signal: controller.signal,
       });

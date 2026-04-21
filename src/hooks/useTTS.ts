@@ -119,6 +119,7 @@ export function useTTS() {
     try {
       const res = await fetch(ttsUrl(), {
         method: "POST",
+        cache: "no-store",
         headers: {
           "Content-Type": "application/json",
           ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}),

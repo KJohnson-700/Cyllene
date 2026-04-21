@@ -49,24 +49,36 @@ function StatCard({ icon, label, value, ok }: { icon: React.ReactNode; label: st
 
 function useHealth(intervalMs = 15_000) {
   const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [error,  setError]  = useState(false);
+  const [error, setError] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const poll = async () => {
       try {
         const h = await getHealth();
-        if (!cancelled) { setHealth(h); setError(false); }
-      } catch {
-        if (!cancelled) setError(true);
+        if (!cancelled) {
+          setHealth(h);
+          setError(false);
+          setLastError(null);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(true);
+          const msg = e instanceof Error ? e.message : String(e);
+          setLastError(msg.length > 280 ? `${msg.slice(0, 280)}…` : msg);
+        }
       }
     };
     poll();
     const t = setInterval(poll, intervalMs);
-    return () => { cancelled = true; clearInterval(t); };
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
   }, [intervalMs]);
 
-  return { health, error };
+  return { health, error, lastError };
 }
 
 function useVaultStatus(intervalMs = 30_000) {
@@ -249,9 +261,17 @@ function LocalHistory() {
 
 // ── Main widget ───────────────────────────────────────────────────────────────
 
+function hardRefreshMiniApp() {
+  const u = new URL(window.location.href);
+  u.searchParams.set("_cb", String(Date.now()));
+  window.location.replace(u.toString());
+}
+
 export function MonitorWidgets() {
-  const { health, error: healthError } = useHealth();
+  const { health, error: healthError, lastError } = useHealth();
   const vault = useVaultStatus();
+  const apiBase = import.meta.env.VITE_API_BASE ?? "";
+  const buildTime = import.meta.env.VITE_APP_BUILD_TIME ?? "—";
 
   const gatewayOk = health?.gateway_running ?? false;
   const vaultOk   = vault?.available ?? false;
@@ -327,15 +347,36 @@ export function MonitorWidgets() {
         <LocalHistory />
       </Section>
 
-      {/* Web admin note */}
-      <div className="rounded-lg border border-white/5 bg-white/2 px-3 py-2 text-center">
-        <p className="text-[10px] font-mono text-white/20">
-          sessions · cron · platforms → web admin unavailable
-        </p>
-        <p className="text-[10px] font-mono text-white/15 mt-0.5">
-          requires hermes web server auth fix
-        </p>
-      </div>
+      <Section title="Hermes connection">
+        <div className="flex flex-col gap-2 text-[10px] font-mono text-white/45 leading-relaxed">
+          <p>
+            Chat, runs, Obsidian, and TTS use <span className="text-white/55">/health</span>,{" "}
+            <span className="text-white/55">/v1/*</span>, <span className="text-white/55">/obsidian/*</span> on{" "}
+            <span className="text-white/55">this app’s origin</span>
+            {apiBase ? ` (API base: ${apiBase})` : " (same-origin)"}. Production forwards those paths via{" "}
+            <span className="text-white/55">vercel.json</span> to your Hermes tunnel or host.
+          </p>
+          <p className="text-white/35">
+            If you see <span className="text-amber-400/70">404 + ngrok HTML</span>, the tunnel is offline or the URL
+            changed — update rewrite destinations in <span className="text-white/50">vercel.json</span> and redeploy.
+            TTS uses <span className="text-white/50">POST /v1/tts</span>; Hermes must still expose that route after
+            backend changes.
+          </p>
+          <p className="text-white/30">Build: {buildTime}</p>
+          {healthError && lastError && (
+            <p className="text-red-400/55 text-[9px] break-words" title={lastError}>
+              Last /health error: {lastError}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={hardRefreshMiniApp}
+            className="mt-1 self-center rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-[10px] font-mono text-white/55 hover:bg-white/10 hover:text-white/75 transition-colors"
+          >
+            Hard refresh (cache bust)
+          </button>
+        </div>
+      </Section>
 
     </div>
   );
