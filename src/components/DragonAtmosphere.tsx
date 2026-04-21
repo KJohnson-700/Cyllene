@@ -18,6 +18,7 @@ export function DragonAtmosphere({ condition, pulse = false }: Props) {
       aria-hidden
     >
       <div className="cyllene-atmo__sky" />
+      <div className="cyllene-atmo__motion" />
       {(c === "cloudy" || c === "rain" || c === "thunder") && (
         <>
           <div className="cyllene-atmo__cloud-ceiling" />

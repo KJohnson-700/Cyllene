@@ -134,6 +134,22 @@ textarea {
   transition: background 2.2s ease;
 }
 
+/* Always-on drift layer so scene is visibly alive even in subtle weather */
+.cyllene-atmo__motion {
+  position: absolute;
+  inset: -18%;
+  opacity: 0.14;
+  background:
+    radial-gradient(45% 40% at 20% 35%, rgba(255, 255, 255, 0.16), transparent 62%),
+    radial-gradient(45% 40% at 78% 68%, rgba(148, 163, 184, 0.14), transparent 64%);
+  animation: cyllene-atmo-motion 18s ease-in-out infinite alternate;
+}
+
+@keyframes cyllene-atmo-motion {
+  from { transform: translate3d(-2.5%, 0, 0) scale(1); }
+  to   { transform: translate3d(2.5%, -1.5%, 0) scale(1.03); }
+}
+
 .cyllene-atmo--sunny .cyllene-atmo__sky {
   background:
     radial-gradient(ellipse 130% 70% at 50% -15%, rgba(253, 224, 71, 0.22), transparent 52%),
@@ -216,33 +232,33 @@ textarea {
 .cyllene-atmo__cloud-band--near {
   top: 16%;
   height: 18%;
-  opacity: 0.55;
+  opacity: 0.75;
   background:
-    radial-gradient(30% 85% at 18% 50%, rgba(30, 40, 56, 0.9), transparent 72%),
-    radial-gradient(38% 90% at 48% 45%, rgba(26, 34, 48, 0.88), transparent 70%),
-    radial-gradient(30% 85% at 78% 55%, rgba(28, 36, 50, 0.86), transparent 70%);
-  animation: cyllene-cloud-near 18s ease-in-out infinite alternate;
+    radial-gradient(30% 85% at 18% 50%, rgba(44, 58, 82, 0.96), transparent 72%),
+    radial-gradient(38% 90% at 48% 45%, rgba(40, 54, 78, 0.94), transparent 70%),
+    radial-gradient(30% 85% at 78% 55%, rgba(38, 52, 74, 0.92), transparent 70%);
+  animation: cyllene-cloud-near 12s ease-in-out infinite alternate;
 }
 
 .cyllene-atmo__cloud-band--mid {
   top: 24%;
   height: 17%;
-  opacity: 0.4;
+  opacity: 0.58;
   background:
-    radial-gradient(40% 85% at 28% 50%, rgba(32, 42, 58, 0.76), transparent 72%),
-    radial-gradient(34% 90% at 62% 45%, rgba(30, 40, 54, 0.72), transparent 70%);
-  animation: cyllene-cloud-mid 26s ease-in-out infinite alternate;
+    radial-gradient(40% 85% at 28% 50%, rgba(42, 56, 78, 0.84), transparent 72%),
+    radial-gradient(34% 90% at 62% 45%, rgba(38, 50, 72, 0.8), transparent 70%);
+  animation: cyllene-cloud-mid 18s ease-in-out infinite alternate;
 }
 
 .cyllene-atmo__cloud-band--far {
   top: 7%;
   height: 16%;
-  opacity: 0.3;
+  opacity: 0.44;
   filter: blur(20px);
   background:
-    radial-gradient(34% 85% at 38% 45%, rgba(36, 46, 62, 0.74), transparent 70%),
-    radial-gradient(34% 90% at 72% 52%, rgba(30, 38, 54, 0.7), transparent 68%);
-  animation: cyllene-cloud-far 34s ease-in-out infinite alternate;
+    radial-gradient(34% 85% at 38% 45%, rgba(50, 66, 92, 0.76), transparent 70%),
+    radial-gradient(34% 90% at 72% 52%, rgba(44, 58, 84, 0.74), transparent 68%);
+  animation: cyllene-cloud-far 24s ease-in-out infinite alternate;
 }
 
 @keyframes cyllene-cloud-near {
@@ -429,8 +445,14 @@ textarea {
   animation-duration: 2.4s;
 }
 
+.cyllene-atmo--pulse .cyllene-atmo__motion {
+  animation-duration: 8s;
+  opacity: 0.2;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cyllene-atmo__cloud-ceiling,
+  .cyllene-atmo__motion,
   .cyllene-atmo__cloud-band--near,
   .cyllene-atmo__cloud-band--mid,
   .cyllene-atmo__cloud-band--far,
