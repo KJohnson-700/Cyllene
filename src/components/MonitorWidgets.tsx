@@ -1,9 +1,7 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { obsidianApi, getHealth, type ObsidianStatus, type HealthResponse } from "@/lib/api";
 import { loadMessages } from "@/lib/session";
 import type { Message } from "@/hooks/useRunStream";
-import { useHermesStatus } from "@/hooks/useHermesStatus";
-import { summarizeCronParity, VAULT_CRON_KNOWN_JOBS } from "@/lib/hermesCronReference";
 import { BookOpen, Cpu, Search, Zap, ChevronRight, Clock } from "lucide-react";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -254,11 +252,6 @@ function LocalHistory() {
 export function MonitorWidgets() {
   const { health, error: healthError } = useHealth();
   const vault = useVaultStatus();
-  const hermes = useHermesStatus(30_000);
-  const cronParity = useMemo(
-    () => summarizeCronParity(hermes.cronJobs),
-    [hermes.cronJobs]
-  );
 
   const gatewayOk = health?.gateway_running ?? false;
   const vaultOk   = vault?.available ?? false;
@@ -334,55 +327,15 @@ export function MonitorWidgets() {
         <LocalHistory />
       </Section>
 
-      {hermes.loading && !hermes.error ? (
-        <div className="rounded-lg border border-white/5 bg-white/2 px-3 py-2 text-center">
-          <p className="text-[10px] font-mono text-white/25">Hermes web · loading crons…</p>
-        </div>
-      ) : hermes.error ? (
-        <div className="rounded-lg border border-white/5 bg-white/2 px-3 py-2 text-center">
-          <p className="text-[10px] font-mono text-white/20">
-            Hermes web /api/cron/jobs unreachable
-          </p>
-          <p className="text-[10px] font-mono text-white/15 mt-0.5 truncate" title={hermes.error}>
-            {hermes.error}
-          </p>
-          <p className="text-[10px] font-mono text-white/15 mt-1">
-            Vault catalog: notes/cron-reference.md (Berkeley Weather → vault; horoscope → Telegram)
-          </p>
-        </div>
-      ) : (
-        <Section title="Hermes crons (runtime)">
-          <p className="text-[11px] font-mono text-white/55 mb-2">{cronParity.monitorLine}</p>
-          <p className="text-[10px] font-mono text-white/30 leading-relaxed mb-2">
-            Vault cross-check:{" "}
-            {VAULT_CRON_KNOWN_JOBS.map((j) => j.vaultTitle).join(" · ")}
-          </p>
-          {cronParity.berkeleyWeather && (
-            <div className="text-[10px] font-mono text-white/40 border-t border-white/6 pt-2 mt-1 space-y-0.5">
-              <p className="text-cyan-400/50">Berkeley Weather</p>
-              <p>
-                {(cronParity.berkeleyWeather.name || cronParity.berkeleyWeather.id).slice(0, 72)}
-                {(cronParity.berkeleyWeather.name || cronParity.berkeleyWeather.id).length > 72
-                  ? "…"
-                  : ""}
-              </p>
-              <p className="text-white/35">{cronParity.berkeleyWeather.schedule_display}</p>
-            </div>
-          )}
-          {cronParity.chanellHoroscope && (
-            <div className="text-[10px] font-mono text-white/40 border-t border-white/6 pt-2 mt-2 space-y-0.5">
-              <p className="text-cyan-400/50">Chanell Morning Horoscope</p>
-              <p>
-                {(cronParity.chanellHoroscope.name || cronParity.chanellHoroscope.id).slice(0, 72)}
-                {(cronParity.chanellHoroscope.name || cronParity.chanellHoroscope.id).length > 72
-                  ? "…"
-                  : ""}
-              </p>
-              <p className="text-white/35">{cronParity.chanellHoroscope.schedule_display}</p>
-            </div>
-          )}
-        </Section>
-      )}
+      {/* Web admin note */}
+      <div className="rounded-lg border border-white/5 bg-white/2 px-3 py-2 text-center">
+        <p className="text-[10px] font-mono text-white/20">
+          sessions · cron · platforms → web admin unavailable
+        </p>
+        <p className="text-[10px] font-mono text-white/15 mt-0.5">
+          requires hermes web server auth fix
+        </p>
+      </div>
 
     </div>
   );
