@@ -49,12 +49,7 @@ export function DragonPage({ agentState: _agentState }: Props) {
         </div>
 
         <div className="flex-1 flex flex-col items-center justify-center min-h-0 py-4 px-4">
-          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-black/20 backdrop-blur-sm px-5 py-6 text-center">
-            <p className="text-[10px] font-mono uppercase tracking-[0.22em] text-white/45">Scene Build In Progress</p>
-            <p className="mt-3 text-sm text-white/65 leading-relaxed">
-              Weather stage is now the focus. Dragon returns after this visual pass is approved.
-            </p>
-          </div>
+          <div className="w-full h-full" />
         </div>
 
         <p className="shrink-0 text-center text-[10px] text-white/25 font-mono pb-3 px-4 content-safe-bottom">
