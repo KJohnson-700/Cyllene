@@ -11,8 +11,34 @@ export type WeatherCondition =
 
 export interface Weather {
   condition: WeatherCondition;
-  temp: number;   // Fahrenheit
-  code: number;   // raw WMO weather code
+  temp: number; // Fahrenheit
+  code: number; // raw WMO weather code
+  windMph: number;
+  humidity: number; // 0–100 %
+}
+
+export function conditionLabel(c: WeatherCondition): string {
+  const map: Record<WeatherCondition, string> = {
+    sunny: "Clear / sunny",
+    cloudy: "Cloudy",
+    rain: "Rain",
+    snow: "Snow",
+    thunder: "Storms nearby",
+    fog: "Foggy",
+    windy: "Windy",
+  };
+  return map[c];
+}
+
+/** Humidity + wind only (for HUD subline — avoids repeating the big temp/condition). */
+export function formatWeatherMetrics(w: Weather): string {
+  return `${w.humidity}% humidity · wind ${Math.round(w.windMph)} mph`;
+}
+
+/** One-sentence local summary from Open-Meteo only (no vault). */
+export function formatWeatherSummary(w: Weather): string {
+  const sky = conditionLabel(w.condition);
+  return `${sky} · ${w.temp}°F · ${w.humidity}% humidity · wind ${Math.round(w.windMph)} mph`;
 }
 
 // WMO weather interpretation codes → our simplified buckets
@@ -33,16 +59,20 @@ const FALLBACK_LON = -122.42;
 
 async function fetchWeather(lat: number, lon: number): Promise<Weather | null> {
   try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code,wind_speed_10m&temperature_unit=fahrenheit&wind_speed_unit=mph`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m&temperature_unit=fahrenheit&wind_speed_unit=mph`;
     const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
     const cur = data?.current;
     if (!cur) return null;
+    const wind = Number(cur.wind_speed_10m ?? 0);
+    const humidity = Math.round(Number(cur.relative_humidity_2m ?? 0));
     return {
       temp: Math.round(cur.temperature_2m),
       code: cur.weather_code,
-      condition: codeToCondition(cur.weather_code, cur.wind_speed_10m ?? 0),
+      condition: codeToCondition(cur.weather_code, wind),
+      windMph: wind,
+      humidity: Math.min(100, Math.max(0, humidity)),
     };
   } catch {
     return null;

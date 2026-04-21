@@ -1,47 +1,55 @@
 import { DragonCompanion } from "@/components/DragonCompanion";
-import { useWeather } from "@/hooks/useWeather";
+import { DragonAtmosphere } from "@/components/DragonAtmosphere";
+import { useWeather, conditionLabel, formatWeatherMetrics } from "@/hooks/useWeather";
 import type { AgentState } from "@/hooks/useRunStream";
-
-const WEATHER_BG: Record<string, string> = {
-  sunny:   "from-yellow-950/30 to-orange-950/20",
-  cloudy:  "from-slate-900/50 to-slate-950/30",
-  rain:    "from-blue-950/40 to-slate-950/30",
-  snow:    "from-slate-800/30 to-blue-950/20",
-  thunder: "from-purple-950/40 to-slate-950/30",
-  fog:     "from-slate-800/40 to-slate-950/20",
-  windy:   "from-teal-950/30 to-slate-950/20",
-};
 
 interface Props {
   agentState: AgentState;
 }
 
 export function DragonPage({ agentState }: Props) {
-  // Reuse the shared hook — same geolocation path as ChatPage, no extra fetches
   const weather = useWeather();
-
-  const bg = weather
-    ? (WEATHER_BG[weather.condition] ?? WEATHER_BG.cloudy)
-    : "from-slate-900/20 to-slate-950/10";
+  const condition = weather?.condition ?? null;
 
   return (
-    <div
-      className={`flex flex-col items-center justify-center min-h-full gap-6 bg-gradient-to-b ${bg} transition-all duration-[2000ms] p-6`}
-    >
-      {/* Weather strip */}
-      {weather && (
-        <div className="flex items-center gap-2 text-xs font-mono text-white/40 border border-white/8 rounded-full px-3 py-1">
-          <span>{weather.condition}</span>
-          <span>·</span>
-          <span>{weather.temp}°F</span>
+    <div className="relative flex flex-col h-full min-h-0 overflow-hidden">
+      <DragonAtmosphere condition={condition} />
+
+      <div className="relative z-10 flex flex-col flex-1 min-h-0 min-w-0">
+        {/* HUD — single glass card, no duplicate chips */}
+        <div className="content-safe-top px-4 pt-3 shrink-0 flex justify-center">
+          {weather ? (
+            <div className="w-full max-w-sm rounded-2xl border border-white/12 bg-black/35 backdrop-blur-md px-5 py-4 shadow-[0_8px_32px_rgba(0,0,0,0.35)]">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-white/45 leading-tight">
+                    {conditionLabel(weather.condition)}
+                  </p>
+                  <p className="text-[11px] font-mono text-white/40 mt-2 leading-snug">
+                    {formatWeatherMetrics(weather)}
+                  </p>
+                </div>
+                <p className="text-4xl font-extralight tabular-nums text-white/90 tracking-tight shrink-0">
+                  {weather.temp}
+                  <span className="text-lg font-light text-white/50 ml-0.5">°</span>
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="w-full max-w-sm rounded-2xl border border-white/8 bg-black/25 backdrop-blur-sm px-5 py-4">
+              <p className="text-[11px] font-mono text-white/35 text-center">Loading weather…</p>
+            </div>
+          )}
         </div>
-      )}
 
-      <DragonCompanion agentState={agentState} weather={weather} />
+        <div className="flex-1 flex flex-col items-center justify-center min-h-0 py-4 px-4">
+          <DragonCompanion agentState={agentState} weather={weather} />
+        </div>
 
-      <p className="text-[10px] text-white/20 font-mono text-center">
-        tap to pet · hold for fire colors
-      </p>
+        <p className="shrink-0 text-center text-[10px] text-white/25 font-mono pb-3 px-4 content-safe-bottom">
+          tap to pet · hold for fire colors
+        </p>
+      </div>
     </div>
   );
 }
