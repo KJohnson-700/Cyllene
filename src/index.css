@@ -203,6 +203,63 @@ textarea {
   );
 }
 
+/* Explicit cloud masses (visible, moving, full-width bands) */
+.cyllene-atmo__cloud-band {
+  position: absolute;
+  left: -15%;
+  right: -15%;
+  border-radius: 999px;
+  filter: blur(14px);
+  pointer-events: none;
+}
+
+.cyllene-atmo__cloud-band--near {
+  top: 16%;
+  height: 18%;
+  opacity: 0.55;
+  background:
+    radial-gradient(30% 85% at 18% 50%, rgba(30, 40, 56, 0.9), transparent 72%),
+    radial-gradient(38% 90% at 48% 45%, rgba(26, 34, 48, 0.88), transparent 70%),
+    radial-gradient(30% 85% at 78% 55%, rgba(28, 36, 50, 0.86), transparent 70%);
+  animation: cyllene-cloud-near 18s ease-in-out infinite alternate;
+}
+
+.cyllene-atmo__cloud-band--mid {
+  top: 24%;
+  height: 17%;
+  opacity: 0.4;
+  background:
+    radial-gradient(40% 85% at 28% 50%, rgba(32, 42, 58, 0.76), transparent 72%),
+    radial-gradient(34% 90% at 62% 45%, rgba(30, 40, 54, 0.72), transparent 70%);
+  animation: cyllene-cloud-mid 26s ease-in-out infinite alternate;
+}
+
+.cyllene-atmo__cloud-band--far {
+  top: 7%;
+  height: 16%;
+  opacity: 0.3;
+  filter: blur(20px);
+  background:
+    radial-gradient(34% 85% at 38% 45%, rgba(36, 46, 62, 0.74), transparent 70%),
+    radial-gradient(34% 90% at 72% 52%, rgba(30, 38, 54, 0.7), transparent 68%);
+  animation: cyllene-cloud-far 34s ease-in-out infinite alternate;
+}
+
+@keyframes cyllene-cloud-near {
+  from { transform: translateX(-2%) translateY(0); }
+  to   { transform: translateX(2%) translateY(-0.5%); }
+}
+
+@keyframes cyllene-cloud-mid {
+  from { transform: translateX(1.5%); }
+  to   { transform: translateX(-1.5%); }
+}
+
+@keyframes cyllene-cloud-far {
+  from { transform: translateX(-1%); }
+  to   { transform: translateX(1%); }
+}
+
 @keyframes cyllene-atmo-ceiling-drift {
   from { transform: translateX(-2%); }
   to   { transform: translateX(2%); }
@@ -360,8 +417,23 @@ textarea {
   pointer-events: none;
 }
 
+.cyllene-atmo--pulse .cyllene-atmo__cloud-band--near {
+  animation-duration: 10s;
+}
+
+.cyllene-atmo--pulse .cyllene-atmo__cloud-band--mid {
+  animation-duration: 14s;
+}
+
+.cyllene-atmo--pulse .cyllene-atmo__wind {
+  animation-duration: 2.4s;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cyllene-atmo__cloud-ceiling,
+  .cyllene-atmo__cloud-band--near,
+  .cyllene-atmo__cloud-band--mid,
+  .cyllene-atmo__cloud-band--far,
   .cyllene-atmo__rain,
   .cyllene-atmo__rain--b,
   .cyllene-atmo__lightning,
