@@ -124,12 +124,17 @@ export async function startRun(prompt: string, sessionId?: string): Promise<RunC
 /** Send a Mini App turn through gateway Telegram session path. */
 export async function telegramMiniappStream(
   text: string,
-  initData: string
+  initData: string,
+  sessionId?: string
 ): Promise<TelegramMiniappResponse> {
   return fetchJSON<TelegramMiniappResponse>(apiUrl("/v1/telegram/stream"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, init_data: initData }),
+    body: JSON.stringify({
+      text,
+      init_data: initData,
+      ...(sessionId ? { session_id: sessionId } : {}),
+    }),
   });
 }
 

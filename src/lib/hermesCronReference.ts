@@ -52,3 +52,18 @@ export function summarizeCronParity(jobs: CronJob[]): CronParitySummary {
     monitorLine: parts.join(" · "),
   };
 }
+
+/** Vault note title for this job when it matches a known Second Brain cron (see VAULT_CRON_KNOWN_JOBS). */
+export function vaultTitleForJob(job: CronJob): string | undefined {
+  const h = haystack(job);
+  if (h.includes("weather") && h.includes("berkeley")) {
+    return VAULT_CRON_KNOWN_JOBS.find((k) => k.id === "berkeley-weather")?.vaultTitle;
+  }
+  if (
+    (h.includes("horoscope") || h.includes("libra")) &&
+    (h.includes("chanell") || h.includes("channell") || h.includes("6060668923"))
+  ) {
+    return VAULT_CRON_KNOWN_JOBS.find((k) => k.id === "chanell-horoscope")?.vaultTitle;
+  }
+  return undefined;
+}

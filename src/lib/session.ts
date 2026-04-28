@@ -4,7 +4,9 @@
  * - Session ID is stored in localStorage and reused across restarts.
  * - When running inside Telegram, the session ID is derived from the user's
  *   Telegram ID so the same Hermes session is always used for this user,
- *   regardless of which device they open the miniapp on.
+ *   regardless of which device they open the miniapp on. That value is the one
+ *   sent as `session_id` on `POST /v1/runs` and (when supported) on
+ *   `POST /v1/telegram/stream` for DM / miniapp continuity.
  * - Messages are also persisted so the chat UI restores exactly as the user
  *   left it.
  */
@@ -13,6 +15,8 @@ import type { Message } from "@/hooks/useRunStream";
 
 const SESSION_KEY  = "cyllene:session-id";
 const MESSAGES_KEY = "cyllene:messages";
+const SPOKEN_IDS_KEY = "cyllene:tts-spoken-ids";
+const MAX_SPOKEN_IDS = 160;
 
 /** Return a stable session ID, creating one if none exists yet. */
 export function getOrCreateSessionId(): string {
@@ -69,4 +73,28 @@ export function clearPersistedMessages(): void {
   try {
     localStorage.removeItem(MESSAGES_KEY);
   } catch { /* ignore */ }
+}
+
+/** Load previously spoken assistant message IDs to avoid replay after app relaunch. */
+export function loadSpokenMessageIds(): string[] {
+  try {
+    const raw = localStorage.getItem(SPOKEN_IDS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((id): id is string => typeof id === "string");
+  } catch {
+    return [];
+  }
+}
+
+/** Persist the spoken assistant message ID set (bounded size). */
+export function saveSpokenMessageIds(ids: Iterable<string>): void {
+  try {
+    const unique = Array.from(new Set(ids));
+    const bounded = unique.slice(-MAX_SPOKEN_IDS);
+    localStorage.setItem(SPOKEN_IDS_KEY, JSON.stringify(bounded));
+  } catch {
+    // ignore storage failures
+  }
 }

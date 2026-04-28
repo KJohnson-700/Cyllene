@@ -15,6 +15,27 @@ interface KanbanColumn {
   tasks: KanbanTask[];
 }
 
+const KANBAN_CANDIDATE_PATHS = [
+  "Kanban.md",
+  "kanban.md",
+  "projects/Kanban.md",
+  "projects/kanban.md",
+] as const;
+
+function normalizeKanbanError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (raw.includes("404")) {
+    return "Kanban.md not found. Ensure the file exists in your vault root.";
+  }
+  if (raw.includes("502") || raw.includes("503") || raw.includes("504")) {
+    return "Obsidian endpoint unavailable. Hermes tunnel may be offline.";
+  }
+  if (raw.includes("<!DOCTYPE html") || raw.includes("<html")) {
+    return "Obsidian endpoint returned HTML instead of JSON. Check tunnel/rewrite target.";
+  }
+  return raw.length > 220 ? `${raw.slice(0, 220)}…` : raw;
+}
+
 // ── Parser ─────────────────────────────────────────────────────────────────────
 function parseKanban(raw: string): KanbanColumn[] {
   // Strip YAML frontmatter
@@ -132,23 +153,42 @@ export function KanbanPanel() {
   const [columns, setColumns] = useState<KanbanColumn[]>([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [resolvedPath, setResolvedPath] = useState<string | null>(null);
 
   useEffect(() => {
-    obsidianApi.readFile("Kanban.md")
-      .then((res) => {
-        setColumns(parseKanban(res.content));
-        setError(null);
-      })
-      .catch((err) => {
-        const msg = String(err);
-        if (msg.includes("404")) {
-          setError("Kanban.md not found — check vault path");
-        } else {
-          setError(msg);
+    setLoading(true);
+    let cancelled = false;
+
+    async function loadKanban() {
+      let lastErr: unknown = null;
+      for (const path of KANBAN_CANDIDATE_PATHS) {
+        try {
+          const res = await obsidianApi.readFile(path);
+          if (cancelled) return;
+          setColumns(parseKanban(res.content));
+          setResolvedPath(path);
+          setError(null);
+          return;
+        } catch (err) {
+          lastErr = err;
         }
-      })
-      .finally(() => setLoading(false));
-  }, []);
+      }
+
+      if (!cancelled) {
+        setResolvedPath(null);
+        setError(normalizeKanbanError(lastErr));
+      }
+    }
+
+    void loadKanban().finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt]);
 
   if (loading) {
     return (
@@ -167,6 +207,13 @@ export function KanbanPanel() {
         <p className="text-[10px] font-mono text-white/20">
           Ensure Kanban.md exists at the root of your vault and the /obsidian/file endpoint is available.
         </p>
+        <button
+          type="button"
+          onClick={() => setAttempt((n) => n + 1)}
+          className="mt-1 w-fit rounded border border-white/15 bg-white/5 px-2.5 py-1 text-[10px] font-mono text-white/55 hover:text-white/80 hover:bg-white/10 transition-colors"
+        >
+          retry
+        </button>
       </div>
     );
   }
@@ -183,6 +230,9 @@ export function KanbanPanel() {
 
   return (
     <div className="h-full overflow-x-auto overflow-y-hidden">
+      {resolvedPath && (
+        <p className="px-4 pt-2 text-[10px] font-mono text-white/25">source: {resolvedPath}</p>
+      )}
       <div className="flex gap-4 p-4 min-w-max">
         {columns.map((col, i) => (
           <Column key={i} col={col} />

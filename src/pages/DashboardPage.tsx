@@ -3,10 +3,11 @@ import { MonitorWidgets } from "@/components/MonitorWidgets";
 import { StreamPanel }    from "@/components/monitor/StreamPanel";
 import { KanbanPanel }    from "@/components/monitor/KanbanPanel";
 import { BrainGraph }     from "@/components/monitor/BrainGraph";
+import { CronPanel }      from "@/components/monitor/CronPanel";
 import { useRunStream }   from "@/hooks/useRunStream";
 
-type Tab = "status" | "stream" | "kanban" | "brain";
-const TABS: Tab[] = ["status", "stream", "kanban", "brain"];
+type Tab = "status" | "stream" | "kanban" | "brain" | "crons";
+const TABS: Tab[] = ["status", "stream", "kanban", "brain", "crons"];
 const TAB_STORE_KEY = "cyllene:monitor-tab";
 
 function readPersistedTab(): Tab {
@@ -19,7 +20,7 @@ function readPersistedTab(): Tab {
 
 function TabStrip({ active, onChange }: { active: Tab; onChange: (t: Tab) => void }) {
   return (
-    <div className="flex items-center gap-0 border-b border-white/8 px-4 shrink-0">
+    <div className="flex items-center gap-0 border-b border-white/10 bg-black/40 px-4 shrink-0">
       {TABS.map((tab) => {
         const isActive = tab === active;
         return (
@@ -44,7 +45,7 @@ function TabStrip({ active, onChange }: { active: Tab; onChange: (t: Tab) => voi
 export function DashboardPage() {
   const [activeTab, setActiveTab] = useState<Tab>(readPersistedTab);
 
-  // useRunStream lifted here so StreamPanel gets live data
+  // Single RunStreamProvider (in main) — same thread as Chat
   const { messages, agentState, activeTool, isRunning } = useRunStream();
 
   const onTabChange = (tab: Tab) => {
@@ -58,9 +59,9 @@ export function DashboardPage() {
   }, [activeTab]);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden bg-[#030406] text-white">
       {/* Page header */}
-      <div className="px-4 pt-4 pb-1 shrink-0">
+      <div className="px-4 pt-4 pb-1 shrink-0 bg-gradient-to-b from-black/70 to-transparent">
         <h1 className="text-xs font-mono uppercase tracking-widest text-white/30">
           Hermes Monitor
         </h1>
@@ -97,6 +98,12 @@ export function DashboardPage() {
         {activeTab === "brain" && (
           <div className="h-full overflow-hidden">
             <BrainGraph />
+          </div>
+        )}
+
+        {activeTab === "crons" && (
+          <div className="h-full overflow-hidden">
+            <CronPanel />
           </div>
         )}
       </div>

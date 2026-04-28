@@ -8,7 +8,7 @@ import {
   Wrench, Check, MessageSquare, CheckCircle, XCircle,
 } from "lucide-react";
 import { getLogEvents, subscribeLog, type LogEvent } from "@/lib/eventLog";
-import type { AgentState, Message } from "@/hooks/useRunStream";
+import { tailAssistantMessage, type AgentState, type Message } from "@/hooks/useRunStream";
 
 interface Props {
   messages: Message[];
@@ -90,8 +90,7 @@ export function StreamPanel({ messages, agentState, activeTool, isRunning }: Pro
     return unsub;
   }, []);
 
-  // Last assistant message preview
-  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+  const lastAssistant = tailAssistantMessage(messages);
   const preview = lastAssistant ? lastAssistant.content.slice(-200) : null;
 
   return (

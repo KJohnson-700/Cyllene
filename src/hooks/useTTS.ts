@@ -2,9 +2,14 @@
  * TTS hook — MiniMax via /v1/tts proxy.
  *
  * Fetches MP3 audio, plays via <audio> element, and exposes a live
- * amplitude signal (0..1) via AnalyserNode for mouth-sync in MatrixFace.
+ * amplitude signal (0..1) via AnalyserNode for mouth-sync in GhostFace.
  *
- * Falls back to Web Speech API if /v1/tts fails (no amplitude in that case).
+ * Falls back to Web Speech API if /v1/tts fails. Web Speech has no
+ * AnalyserNode path — we drive a small synthetic envelope so the face
+ * is not completely flat in fallback.
+ *
+ * Optional `voice_id` is sent when set (or `VITE_TTS_VOICE_ID` default);
+ * the proxy should ignore unknown fields if unsupported.
  * Web Speech uses one pinned English voice so it does not drift between utterances.
  * If MiniMax and Web Speech both run intermittently, voices still differ — fix proxy/API reliability for a single engine.
  */
@@ -14,9 +19,17 @@ import { loadPreference, savePreference } from "@/lib/telegram";
 
 const API_KEY = import.meta.env.VITE_API_KEY ?? "";
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+const DEV = import.meta.env.DEV;
+const DEFAULT_VOICE =
+  (import.meta.env.VITE_TTS_VOICE_ID as string | undefined) ?? "";
 
 function ttsUrl() {
   return `${API_BASE}/v1/tts`;
+}
+
+function ttsDebug(message: string) {
+  if (!DEV) return;
+  console.debug(`[tts] ${message}`);
 }
 
 /** Deterministic pick: same voice across utterances (avoids browser default drift). */
@@ -38,16 +51,21 @@ export function useTTS() {
   const [enabled, setEnabled] = useState(true);
   const [speaking, setSpeaking] = useState(false);
   const [amplitude, setAmplitude] = useState(0);
+  const [voiceId, setVoiceId] = useState("");
 
   const queueRef = useRef<string[]>([]);
   const busyRef = useRef(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const audioElRef = useRef<HTMLAudioElement | null>(null);
+  const mediaElementSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const rafRef = useRef<number>(0);
+  const webSpeechRafRef = useRef<number>(0);
+  const audioElRef = useRef<HTMLAudioElement | null>(null);
   const currentUrlRef = useRef<string | null>(null);
   /** Pinned once Web Speech voices load — avoids browser default flipping between utterances. */
   const webSpeechVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
+  /** Keep one engine per session so voice doesn't flip between utterances. */
+  const engineRef = useRef<"minimax" | "webspeech" | null>(null);
 
   useEffect(() => {
     if (!("speechSynthesis" in window)) return;
@@ -63,7 +81,10 @@ export function useTTS() {
   useEffect(() => {
     return () => {
       cancelAnimationFrame(rafRef.current);
+      cancelAnimationFrame(webSpeechRafRef.current);
       if (currentUrlRef.current) URL.revokeObjectURL(currentUrlRef.current);
+      mediaElementSourceRef.current?.disconnect();
+      mediaElementSourceRef.current = null;
       audioElRef.current?.pause();
       audioCtxRef.current?.close();
     };
@@ -75,11 +96,19 @@ export function useTTS() {
         setEnabled(false);
       }
     });
+    loadPreference("cyllene:tts-voice-id").then((v) => {
+      if (v != null && v !== "") setVoiceId(v);
+      else if (DEFAULT_VOICE) setVoiceId(DEFAULT_VOICE);
+    });
   }, []);
 
   useEffect(() => {
     savePreference("cyllene:tts-enabled", String(enabled));
   }, [enabled]);
+
+  useEffect(() => {
+    savePreference("cyllene:tts-voice-id", voiceId);
+  }, [voiceId]);
 
   function ensureContext() {
     if (!audioCtxRef.current) {
@@ -93,6 +122,12 @@ export function useTTS() {
     if (audioCtxRef.current.state === "suspended") {
       audioCtxRef.current.resume();
     }
+  }
+
+  function disconnectMiniMaxGraph() {
+    cancelAnimationFrame(rafRef.current);
+    mediaElementSourceRef.current?.disconnect();
+    mediaElementSourceRef.current = null;
   }
 
   function pollAmplitude() {
@@ -115,8 +150,26 @@ export function useTTS() {
     rafRef.current = requestAnimationFrame(tick);
   }
 
+  function startWebSpeechAmplitude() {
+    cancelAnimationFrame(webSpeechRafRef.current);
+    let t = 0;
+    const tick = () => {
+      t += 0.11;
+      const wobble = 0.5 + 0.5 * Math.sin(t);
+      setAmplitude(Math.min(1, 0.22 + 0.6 * wobble));
+      webSpeechRafRef.current = requestAnimationFrame(tick);
+    };
+    webSpeechRafRef.current = requestAnimationFrame(tick);
+  }
+
+  function stopWebSpeechAmplitude() {
+    cancelAnimationFrame(webSpeechRafRef.current);
+    setAmplitude(0);
+  }
+
   async function playViaMiniMax(text: string): Promise<boolean> {
     try {
+      const vid = voiceId.trim();
       const res = await fetch(ttsUrl(), {
         method: "POST",
         cache: "no-store",
@@ -125,7 +178,10 @@ export function useTTS() {
           ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}),
           "ngrok-skip-browser-warning": "true",
         },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          text,
+          ...(vid ? { voice_id: vid } : {}),
+        }),
       });
       if (!res.ok) return false;
       const blob = await res.blob();
@@ -137,26 +193,27 @@ export function useTTS() {
       const ctx = audioCtxRef.current!;
       const analyser = analyserRef.current!;
 
+      disconnectMiniMaxGraph();
+
       const audio = new Audio(url);
       audio.crossOrigin = "anonymous";
       audioElRef.current = audio;
 
       const src = ctx.createMediaElementSource(audio);
+      mediaElementSourceRef.current = src;
       src.connect(analyser);
       analyser.connect(ctx.destination);
 
       return new Promise<boolean>((resolve) => {
-        audio.onended = () => {
+        const done = (ok: boolean) => {
+          disconnectMiniMaxGraph();
           setAmplitude(0);
-          cancelAnimationFrame(rafRef.current);
-          resolve(true);
+          audioElRef.current = null;
+          resolve(ok);
         };
-        audio.onerror = () => {
-          setAmplitude(0);
-          cancelAnimationFrame(rafRef.current);
-          resolve(false);
-        };
-        audio.play().then(() => pollAmplitude()).catch(() => resolve(false));
+        audio.onended = () => done(true);
+        audio.onerror = () => done(false);
+        audio.play().then(() => pollAmplitude()).catch(() => done(false));
       });
     } catch {
       return false;
@@ -169,14 +226,21 @@ export function useTTS() {
       if (!webSpeechVoiceRef.current) {
         webSpeechVoiceRef.current = pickStableWebSpeechVoice();
       }
+      startWebSpeechAmplitude();
       const utter = new SpeechSynthesisUtterance(text);
       utter.rate = 1.05;
       utter.lang = webSpeechVoiceRef.current?.lang ?? "en-US";
       if (webSpeechVoiceRef.current) {
         utter.voice = webSpeechVoiceRef.current;
       }
-      utter.onend = () => resolve(true);
-      utter.onerror = () => resolve(false);
+      utter.onend = () => {
+        stopWebSpeechAmplitude();
+        resolve(true);
+      };
+      utter.onerror = () => {
+        stopWebSpeechAmplitude();
+        resolve(false);
+      };
       window.speechSynthesis.speak(utter);
     });
   }
@@ -187,8 +251,32 @@ export function useTTS() {
     setSpeaking(true);
     while (queueRef.current.length > 0) {
       const text = queueRef.current.shift()!;
-      const ok = await playViaMiniMax(text);
-      if (!ok) await playViaWebSpeech(text);
+      if (engineRef.current === "minimax") {
+        ttsDebug("using locked engine=minimax");
+        await playViaMiniMax(text);
+        continue;
+      }
+      if (engineRef.current === "webspeech") {
+        ttsDebug("using locked engine=webspeech");
+        await playViaWebSpeech(text);
+        continue;
+      }
+
+      // First successful engine becomes sticky for this session.
+      const miniMaxOk = await playViaMiniMax(text);
+      if (miniMaxOk) {
+        engineRef.current = "minimax";
+        ttsDebug("locked engine=minimax");
+        continue;
+      }
+
+      const webSpeechOk = await playViaWebSpeech(text);
+      if (webSpeechOk) {
+        engineRef.current = "webspeech";
+        ttsDebug("locked engine=webspeech");
+      } else {
+        ttsDebug("both engines failed for utterance");
+      }
     }
     busyRef.current = false;
     setSpeaking(false);
@@ -214,9 +302,12 @@ export function useTTS() {
     queueRef.current = [];
     busyRef.current = false;
     cancelAnimationFrame(rafRef.current);
+    cancelAnimationFrame(webSpeechRafRef.current);
     setAmplitude(0);
     setSpeaking(false);
+    disconnectMiniMaxGraph();
     audioElRef.current?.pause();
+    audioElRef.current = null;
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
   }, []);
 
@@ -226,13 +317,28 @@ export function useTTS() {
         queueRef.current = [];
         audioElRef.current?.pause();
         if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+        cancelAnimationFrame(rafRef.current);
+        cancelAnimationFrame(webSpeechRafRef.current);
+        disconnectMiniMaxGraph();
         setAmplitude(0);
         setSpeaking(false);
         busyRef.current = false;
+        engineRef.current = null;
+        ttsDebug("engine lock reset");
       }
       return !v;
     });
   }, []);
 
-  return { speak, stop, toggle, speaking, enabled, amplitude, supported: true };
+  return {
+    speak,
+    stop,
+    toggle,
+    speaking,
+    enabled,
+    amplitude,
+    supported: true,
+    voiceId,
+    setVoiceId,
+  };
 }

@@ -1,4 +1,13 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  createContext,
+  useContext,
+  createElement,
+  type ReactNode,
+} from "react";
 import { obsidianApi, startRun, streamRun, telegramMiniappStream, type RunEvent } from "@/lib/api";
 import {
   getOrCreateSessionId,
@@ -9,6 +18,17 @@ import {
 import { pushLogEvent } from "@/lib/eventLog";
 import { getInitData, isTelegram } from "@/lib/telegram";
 
+/**
+ * Memory model (this mini app):
+ * - **Short-term:** In-memory `messages` + `agentState` / `isRunning` in this provider — one
+ *   React tree shares it so Chat and Monitor never fight the same `localStorage` keys.
+ * - **Mid-term:** `cyllene:messages` in localStorage and a stable `session_id` in
+ *   `getOrCreateSessionId()` (Telegram: `miniapp-tg-<user_id>`) so Hermes continues server-side
+ *   after reload; same id is sent on `startRun` and Telegram `/v1/telegram/stream`.
+ * - **Long-term / RAG-style:** `buildMemoryAwarePrompt` enriches the user text with a bounded
+ *   fragment from the Obsidian vault via `obsidianApi.search` before the run.
+ */
+
 export type AgentState = "idle" | "reasoning" | "responding" | "alert";
 
 export interface Message {
@@ -16,6 +36,12 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   timestamp: number;
+}
+
+/** Reply shown in Chat / Monitor: only when the thread tail is an assistant (avoids stale prior reply while the last line is a user / in-flight turn — e.g. Telegram bridge before reply arrives). */
+export function tailAssistantMessage(messages: Message[]): Message | undefined {
+  const tail = messages.at(-1);
+  return tail?.role === "assistant" ? tail : undefined;
 }
 
 export interface RunStreamState {
@@ -26,6 +52,16 @@ export interface RunStreamState {
   isRunning: boolean;
   error: string | null;
 }
+
+export type RunStreamApi = RunStreamState & {
+  sendMessage: (prompt: string) => Promise<void>;
+  cancel: () => void;
+  clearMessages: () => void;
+  /** Same id passed to `startRun` and Telegram stream — single Hermes session for this user/app. */
+  sessionId: string;
+};
+
+const RunStreamContext = createContext<RunStreamApi | null>(null);
 
 async function buildMemoryAwarePrompt(prompt: string): Promise<string> {
   // Search the vault directly — proxy handles REST→filesystem fallback internally.
@@ -59,7 +95,7 @@ async function buildMemoryAwarePrompt(prompt: string): Promise<string> {
   }
 }
 
-export function useRunStream() {
+function useRunStreamState(): RunStreamApi {
   const sessionIdRef = useRef<string>(getOrCreateSessionId());
 
   const [state, setState] = useState<RunStreamState>(() => ({
@@ -109,7 +145,12 @@ export function useRunStream() {
       if (isTelegram()) {
         const initData = getInitData();
         if (!initData) throw new Error("Telegram init data missing");
-        const miniapp = await telegramMiniappStream(promptWithMemory, initData);
+        // Bridge uses the same session id as SSE `startRun` / DM so Hermes state matches Chat + Monitor.
+        const miniapp = await telegramMiniappStream(
+          promptWithMemory,
+          initData,
+          sessionIdRef.current
+        );
         if (!miniapp.ok) {
           throw new Error(miniapp.detail || miniapp.error || "Miniapp bridge failed");
         }
@@ -262,5 +303,24 @@ export function useRunStream() {
     // Keep the same session ID — Hermes remembers even if the UI is cleared
   }, []);
 
-  return { ...state, sendMessage, cancel, clearMessages };
+  return {
+    ...state,
+    sendMessage,
+    cancel,
+    clearMessages,
+    sessionId: sessionIdRef.current,
+  };
+}
+
+export function RunStreamProvider({ children }: { children: ReactNode }) {
+  const value = useRunStreamState();
+  return createElement(RunStreamContext.Provider, { value }, children);
+}
+
+export function useRunStream(): RunStreamApi {
+  const v = useContext(RunStreamContext);
+  if (!v) {
+    throw new Error("useRunStream must be used within RunStreamProvider");
+  }
+  return v;
 }
