@@ -19,8 +19,6 @@ import {
   setVerticalSwipes,
   themeParams,
   isVersionAtLeast,
-  checkHomeScreenStatus,
-  addToHomeScreen,
   isFullscreen,
 } from "@/lib/telegram";
 import type { AgentState } from "@/hooks/useRunStream";
