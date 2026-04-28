@@ -83,12 +83,6 @@ export default function App() {
       if (v === "chat" || v === "dragon" || v === "dashboard") setTab(v);
     });
 
-    // Offer home screen install after first real use, once per install
-    if (isVersionAtLeast("8.0")) {
-      checkHomeScreenStatus().then((status) => {
-        if (status === "unknown") addToHomeScreen();
-      });
-    }
 
     return () => {
       offTheme();
