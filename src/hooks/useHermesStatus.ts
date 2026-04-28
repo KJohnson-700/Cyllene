@@ -22,26 +22,21 @@ export function useHermesStatus(pollMs = 10_000) {
     let cancelled = false;
 
     async function load() {
-      try {
-        const [status, sessionsResp, cronJobs] = await Promise.all([
-          webApi.getStatus(),
-          webApi.getSessions(10),
-          webApi.getCronJobs(),
-        ]);
-        if (!cancelled) {
-          setState({
-            status,
-            sessions: sessionsResp.sessions,
-            cronJobs,
-            loading: false,
-            error: null,
-          });
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setState((s) => ({ ...s, loading: false, error: String(err) }));
-        }
-      }
+      const [statusR, sessionsR, cronR] = await Promise.allSettled([
+        webApi.getStatus(),
+        webApi.getSessions(10),
+        webApi.getCronJobs(),
+      ]);
+
+      if (cancelled) return;
+
+      setState({
+        status:   statusR.status   === "fulfilled" ? statusR.value           : null,
+        sessions: sessionsR.status === "fulfilled" ? sessionsR.value.sessions : [],
+        cronJobs: cronR.status     === "fulfilled" ? cronR.value              : [],
+        loading: false,
+        error: null,
+      });
     }
 
     load();

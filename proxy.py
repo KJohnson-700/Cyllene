@@ -3,7 +3,7 @@ Cyllene local proxy — port 8080
 Routes:
   /v1/tts → MiniMax TTS (synthesize mp3, return blob)
   /v1/*   → Hermes API server  :8642  (chat, runs, SSE)
-  /api/*  → Hermes web server  :9119  (status, sessions, cron)
+  /api/*  → Hermes API server  :8642  (status, sessions, cron)
   /*      → 404
 
 Run: python proxy.py
@@ -18,7 +18,7 @@ from pathlib import Path
 from aiohttp import web, ClientSession, ClientTimeout
 
 API_PORT  = int(os.getenv("HERMES_API_PORT",  "8642"))
-WEB_PORT  = int(os.getenv("HERMES_WEB_PORT",  "9119"))
+WEB_PORT  = int(os.getenv("HERMES_WEB_PORT",  "8642"))
 PROXY_PORT = int(os.getenv("CYLLENE_PROXY_PORT", "8080"))
 
 MINIMAX_URL = "https://api.minimax.io/v1/t2a_v2"
@@ -552,5 +552,5 @@ if __name__ == "__main__":
     print(f"  /v1/tts → MiniMax TTS  (key {'set' if MINIMAX_KEY else 'MISSING'})")
     print(f"  /obsidian/* → Obsidian Local REST API ({OBSIDIAN_VAULT_PATH})")
     print(f"  /v1/*   → :{API_PORT}  (Hermes API)")
-    print(f"  /api/*  → :{WEB_PORT}  (Hermes web)")
+    print(f"  /api/*  → :{WEB_PORT}  (Hermes API admin)")
     web.run_app(make_app(), port=PROXY_PORT, print=lambda *a: None)
