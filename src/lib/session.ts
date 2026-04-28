@@ -58,11 +58,21 @@ export function saveMessages(messages: Message[]): void {
   } catch { /* storage quota exceeded — silently ignore */ }
 }
 
-/** Load previously persisted messages (empty array if none). */
+const MESSAGE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/** Load previously persisted messages, discarding anything older than 24 hours. */
 export function loadMessages(): Message[] {
   try {
     const raw = localStorage.getItem(MESSAGES_KEY);
-    return raw ? (JSON.parse(raw) as Message[]) : [];
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Message[];
+    const cutoff = Date.now() - MESSAGE_TTL_MS;
+    const fresh = parsed.filter((m) => m.timestamp > cutoff);
+    if (fresh.length !== parsed.length) {
+      if (fresh.length === 0) localStorage.removeItem(MESSAGES_KEY);
+      else localStorage.setItem(MESSAGES_KEY, JSON.stringify(fresh));
+    }
+    return fresh;
   } catch {
     return [];
   }

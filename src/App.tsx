@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { MessageSquare, Flame, LayoutDashboard } from "lucide-react";
+import { MessageSquare, CloudSun, LayoutDashboard } from "lucide-react";
 import { ChatPage } from "@/pages/ChatPage";
 import { DragonPage } from "@/pages/DragonPage";
 import { DashboardPage } from "@/pages/DashboardPage";
@@ -29,7 +29,7 @@ type Tab = "chat" | "dragon" | "dashboard";
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "chat",      label: "Chat",    icon: <MessageSquare size={18} /> },
-  { id: "dragon",    label: "Cyllene", icon: <Flame size={18} /> },
+  { id: "dragon",    label: "Weather", icon: <CloudSun size={18} /> },
   { id: "dashboard", label: "Monitor", icon: <LayoutDashboard size={18} /> },
 ];
 
