@@ -271,9 +271,11 @@ export const webApi = {
     fetchJSON<{ sessions: SessionInfo[]; total: number }>(
       webUrl(`/api/sessions?limit=${limit}`)
     ),
-  getCronJobs: () => fetchJSON<CronJob[]>(webUrl("/api/cron/jobs")),
+  getCronJobs: () =>
+    fetchJSON<{ jobs: CronJob[] }>(webUrl("/api/jobs?include_disabled=true"))
+      .then((r) => r.jobs),
   triggerCronJob: (id: string) =>
-    fetchJSON<{ ok: boolean }>(webUrl(`/api/cron/jobs/${id}/trigger`), {
+    fetchJSON<{ ok: boolean }>(webUrl(`/api/jobs/${id}/run`), {
       method: "POST",
     }),
 };
