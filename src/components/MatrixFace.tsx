@@ -18,11 +18,13 @@ const CHARS =
 const COLS = 64;
 const ROWS = 80;
 
-const STATE_RGB: Record<AgentState, [number, number, number]> = {
+const STATE_RGB: Record<string, [number, number, number]> = {
   idle:       [0,   255, 100],
   reasoning:  [60,  230, 210],
   responding: [0,   200, 255],
   alert:      [255,  50,  50],
+  angry:      [255,  65,  45],
+  sad:        [90,  120, 210],
 };
 
 // ── Anatomical face geometry ───────────────────────────────────────────────────

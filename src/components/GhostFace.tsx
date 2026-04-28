@@ -26,11 +26,15 @@ interface Props {
 }
 
 // State → [r, g, b] — ghost glow color
-const STATE_RGB: Record<AgentState, [number, number, number]> = {
+const STATE_RGB: Record<string, [number, number, number]> = {
   idle:       [120, 255, 180],
   reasoning:  [80,  220, 255],
   responding: [160, 200, 255],
   alert:      [255,  90,  90],
+  angry:      [255,  65,  45],
+  sad:        [90,  120, 210],
+  laughing:   [255, 215,  50],
+  dancing:    [200, 110, 255],
 };
 
 // ── Expression ────────────────────────────────────────────────────────────────
@@ -52,6 +56,7 @@ interface Expr {
   floatSpeed:  number;  // float frequency scale
   driftAmp:    number;  // horizontal drift amplitude
   spinSpeed:   number;  // full rotations per second (0 = no spin)
+  angerBrow:   number;  // 0=none, 1=full V-frown brows
 }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -74,6 +79,7 @@ function lerpE(a: Expr, b: Expr, t: number): Expr {
     floatSpeed: lerp(a.floatSpeed, b.floatSpeed, t),
     driftAmp:   lerp(a.driftAmp,   b.driftAmp,   t),
     spinSpeed:  lerp(a.spinSpeed,  b.spinSpeed,  t),
+    angerBrow:  lerp(a.angerBrow,  b.angerBrow,  t),
   };
 }
 
@@ -84,6 +90,7 @@ const E_IDLE: Expr = {
   tilt: 0, wriggle: 0.22,
   armRaise: 0, blush: 0.65,
   squishY: 1, floatAmp: 1, floatSpeed: 1, driftAmp: 0.5, spinSpeed: 0,
+  angerBrow: 0,
 };
 const E_REASONING: Expr = {
   eyeOpenL: 0.55, eyeOpenR: 1.25, eyeOffsetY: -0.25,
@@ -92,6 +99,7 @@ const E_REASONING: Expr = {
   tilt: 0.18, wriggle: 0.14,
   armRaise: 0, blush: 0,
   squishY: 1.05, floatAmp: 0.6, floatSpeed: 0.7, driftAmp: 0.3, spinSpeed: 0,
+  angerBrow: 0,
 };
 const E_RESPONDING_A: Expr = {
   eyeOpenL: 1.1, eyeOpenR: 1.1, eyeOffsetY: 0.05,
@@ -100,6 +108,7 @@ const E_RESPONDING_A: Expr = {
   tilt: 0, wriggle: 0.42,
   armRaise: 0, blush: 0.2,
   squishY: 1, floatAmp: 1.3, floatSpeed: 1.8, driftAmp: 0.4, spinSpeed: 0,
+  angerBrow: 0,
 };
 const E_RESPONDING_B: Expr = {
   eyeOpenL: 0.85, eyeOpenR: 0.85, eyeOffsetY: 0.05,
@@ -108,6 +117,7 @@ const E_RESPONDING_B: Expr = {
   tilt: 0, wriggle: 0.52,
   armRaise: 0, blush: 0.15,
   squishY: 1.12, floatAmp: 1.3, floatSpeed: 1.8, driftAmp: 0.4, spinSpeed: 0,
+  angerBrow: 0,
 };
 const E_ALERT: Expr = {
   eyeOpenL: 0, eyeOpenR: 0, eyeOffsetY: 0,
@@ -116,6 +126,7 @@ const E_ALERT: Expr = {
   tilt: 0, wriggle: 0.72,
   armRaise: 0, blush: 0,
   squishY: 0.92, floatAmp: 1.8, floatSpeed: 2.2, driftAmp: 1.6, spinSpeed: 1.4,
+  angerBrow: 0,
 };
 
 // ── Idle micro-expressions — reference-frame inspired variety ─────────────────
@@ -127,6 +138,7 @@ const E_IDLE_CURIOUS: Expr = {
   tilt: 0.18, wriggle: 0.18,
   armRaise: 0, blush: 0.42,
   squishY: 1.0, floatAmp: 0.85, floatSpeed: 0.82, driftAmp: 0.38, spinSpeed: 0,
+  angerBrow: 0,
 };
 // Sleepy: droopy eyes, very flat squished body — pancake ghost from row 3
 const E_IDLE_SLEEPY: Expr = {
@@ -136,6 +148,7 @@ const E_IDLE_SLEEPY: Expr = {
   tilt: 0.09, wriggle: 0.09,
   armRaise: 0, blush: 0.94,
   squishY: 0.68, floatAmp: 0.30, floatSpeed: 0.48, driftAmp: 0.18, spinSpeed: 0,
+  angerBrow: 0,
 };
 // Surprised: giant eyes, tall body, bouncy — startled ghost
 const E_IDLE_SURPRISED: Expr = {
@@ -145,6 +158,7 @@ const E_IDLE_SURPRISED: Expr = {
   tilt: 0, wriggle: 0.46,
   armRaise: 0, blush: 0.20,
   squishY: 1.24, floatAmp: 1.65, floatSpeed: 1.45, driftAmp: 0.65, spinSpeed: 0,
+  angerBrow: 0,
 };
 // Looking left: pupils dart hard, slight body lean
 const E_IDLE_LOOK_L: Expr = {
@@ -154,6 +168,7 @@ const E_IDLE_LOOK_L: Expr = {
   tilt: -0.13, wriggle: 0.20,
   armRaise: 0, blush: 0.55,
   squishY: 1.0, floatAmp: 1.0, floatSpeed: 0.95, driftAmp: 0.48, spinSpeed: 0,
+  angerBrow: 0,
 };
 // Looking right
 const E_IDLE_LOOK_R: Expr = {
@@ -163,6 +178,7 @@ const E_IDLE_LOOK_R: Expr = {
   tilt: 0.13, wriggle: 0.20,
   armRaise: 0, blush: 0.55,
   squishY: 1.0, floatAmp: 1.0, floatSpeed: 0.95, driftAmp: 0.48, spinSpeed: 0,
+  angerBrow: 0,
 };
 // Happy wiggle: big smile, energetic tail, bouncy — excited ghost
 const E_IDLE_WIGGLE: Expr = {
@@ -172,6 +188,7 @@ const E_IDLE_WIGGLE: Expr = {
   tilt: 0, wriggle: 0.70,
   armRaise: 0, blush: 0.92,
   squishY: 1.08, floatAmp: 1.35, floatSpeed: 1.30, driftAmp: 0.70, spinSpeed: 0,
+  angerBrow: 0,
 };
 // Droopy/shy: face sliding downward, subtle frown, slow — shy ghost (bottom row)
 const E_IDLE_DROOP: Expr = {
@@ -181,6 +198,7 @@ const E_IDLE_DROOP: Expr = {
   tilt: 0.12, wriggle: 0.11,
   armRaise: 0, blush: 0.75,
   squishY: 0.86, floatAmp: 0.52, floatSpeed: 0.68, driftAmp: 0.16, spinSpeed: 0,
+  angerBrow: 0,
 };
 // Peeking: one eye hidden, one big — ghost peeking around a corner
 const E_IDLE_PEEK: Expr = {
@@ -190,6 +208,7 @@ const E_IDLE_PEEK: Expr = {
   tilt: 0.24, wriggle: 0.15,
   armRaise: 0, blush: 0.52,
   squishY: 1.0, floatAmp: 0.88, floatSpeed: 0.85, driftAmp: 0.32, spinSpeed: 0,
+  angerBrow: 0,
 };
 // Ultra-flat/melty: extreme squish, face barely visible — napping pancake ghost
 const E_IDLE_MELTY: Expr = {
@@ -199,6 +218,7 @@ const E_IDLE_MELTY: Expr = {
   tilt: 0, wriggle: 0.07,
   armRaise: 0, blush: 0.68,
   squishY: 0.50, floatAmp: 0.22, floatSpeed: 0.40, driftAmp: 0.12, spinSpeed: 0,
+  angerBrow: 0,
 };
 // Alternate reasoning pose — opposite-eye squint, leans the other way
 const E_REASONING_B: Expr = {
@@ -208,6 +228,7 @@ const E_REASONING_B: Expr = {
   tilt: -0.20, wriggle: 0.10,
   armRaise: 0, blush: 0,
   squishY: 1.06, floatAmp: 0.50, floatSpeed: 0.60, driftAmp: 0.20, spinSpeed: 0,
+  angerBrow: 0,
 };
 // Cute spin — happy pirouette, wide smile, gentle rotation
 const E_IDLE_SPIN: Expr = {
@@ -217,6 +238,7 @@ const E_IDLE_SPIN: Expr = {
   tilt: 0, wriggle: 0.40,
   armRaise: 0, blush: 0.80,
   squishY: 1.04, floatAmp: 1.15, floatSpeed: 1.25, driftAmp: 0.55, spinSpeed: 0.52,
+  angerBrow: 0,
 };
 // Zoom/dart — ghost travels wide, energetic drifting
 const E_IDLE_ZOOM: Expr = {
@@ -226,6 +248,51 @@ const E_IDLE_ZOOM: Expr = {
   tilt: 0.14, wriggle: 0.60,
   armRaise: 0, blush: 0.50,
   squishY: 0.94, floatAmp: 2.40, floatSpeed: 1.55, driftAmp: 3.20, spinSpeed: 0,
+  angerBrow: 0,
+};
+
+// Angry: furrowed brows, hard frown, puffed up, twitchy
+const E_ANGRY: Expr = {
+  eyeOpenL: 0.72, eyeOpenR: 0.72, eyeOffsetY: -0.20,
+  pupilOffX: 0, pupilOffY: -0.18, xEyes: 0,
+  mouthOpen: 0, smile: -0.92,
+  tilt: 0.08, wriggle: 0.38,
+  armRaise: 0, blush: 0,
+  angerBrow: 1.0,
+  squishY: 1.14, floatAmp: 1.5, floatSpeed: 2.0, driftAmp: 1.4, spinSpeed: 0,
+};
+
+// Sad: droopy eyes, deep frown, deflated, slow
+const E_SAD: Expr = {
+  eyeOpenL: 0.42, eyeOpenR: 0.42, eyeOffsetY: 0.32,
+  pupilOffX: 0, pupilOffY: 0.38, xEyes: 0,
+  mouthOpen: 0, smile: -0.78,
+  tilt: 0.08, wriggle: 0.06,
+  armRaise: 0, blush: 0.15,
+  angerBrow: 0,
+  squishY: 0.76, floatAmp: 0.22, floatSpeed: 0.42, driftAmp: 0.12, spinSpeed: 0,
+};
+
+// Laughing: eyes shut in laughter, huge open mouth, shaking with joy
+const E_LAUGHING: Expr = {
+  eyeOpenL: 0.05, eyeOpenR: 0.05, eyeOffsetY: 0.18,
+  pupilOffX: 0, pupilOffY: 0.22, xEyes: 0,
+  mouthOpen: 0.98, smile: 1.0,
+  tilt: 0.06, wriggle: 0.72,
+  armRaise: 0, blush: 1.0,
+  squishY: 1.18, floatAmp: 1.85, floatSpeed: 3.0, driftAmp: 1.0, spinSpeed: 0,
+  angerBrow: 0,
+};
+
+// Dancing: happy squinted eyes, arms raised, fast bounce, big smile
+const E_DANCING: Expr = {
+  eyeOpenL: 0.10, eyeOpenR: 0.10, eyeOffsetY: -0.05,
+  pupilOffX: 0, pupilOffY: 0, xEyes: 0,
+  mouthOpen: 0.52, smile: 0.98,
+  tilt: 0.04, wriggle: 0.88,
+  armRaise: 0.88, blush: 0.92,
+  squishY: 1.16, floatAmp: 2.0, floatSpeed: 2.8, driftAmp: 0.85, spinSpeed: 0,
+  angerBrow: 0,
 };
 
 // Weighted pools — sampled randomly for organic variety
@@ -462,6 +529,23 @@ function drawGhost(
     }
   }
 
+  // ── Angry brows ──
+  if (e.angerBrow > 0.05) {
+    const browBaseY = eyeBaseY - eyeRYbase * 1.65;
+    const browHalfW = eyeRX * 1.25;
+    const slope     = browHalfW * e.angerBrow * 0.52;
+    ctx.strokeStyle = `rgba(8,14,22,${(0.7 + e.angerBrow * 0.25).toFixed(2)})`;
+    ctx.lineWidth   = R * 0.10;
+    ctx.lineCap     = "round";
+    for (const side of [-1, 1] as const) {
+      const bx = cx + side * eyeSpread;
+      ctx.beginPath();
+      ctx.moveTo(bx - side * browHalfW, browBaseY + slope);  // outer tip lower
+      ctx.lineTo(bx + side * browHalfW, browBaseY - slope);  // inner tip higher → angry V
+      ctx.stroke();
+    }
+  }
+
   // ── Mouth ──
   const mouthCY = cy + R * 0.44;   // well clear of the eyes
   const mouthW  = R * 0.30;
@@ -582,6 +666,10 @@ export function GhostFace({
     let alertVX      = (Math.random() - 0.5) * 2;
     let alertVY      = (Math.random() - 0.5) * 2;
     let spinAngle    = 0;
+    let zoomOffX = 0, zoomOffY = 0;
+    let zoomVX   = 0, zoomVY   = 0;
+    let zoomActive = false;
+    let laughShakeX  = 0;
 
     // Micro-state — randomly cycles sub-expressions within each macro state
     let microTimer     = 0;
@@ -616,7 +704,7 @@ export function GhostFace({
         const gW   = W - gL - PAD - 2;
         const gH   = H - gT - FOOT - PAD;
 
-        const [sr, sg, sb] = STATE_RGB[state];
+        const [sr, sg, sb] = STATE_RGB[state] ?? STATE_RGB["idle"];
 
         // Ghost size — fills about 55% of available height
         const R  = Math.min(gW * 0.30, gH * 0.28);
@@ -649,6 +737,14 @@ export function GhostFace({
           target = currentMicro;
         } else if (state === "alert") {
           target = E_ALERT;
+        } else if (state === "angry") {
+          target = E_ANGRY;
+        } else if (state === "sad") {
+          target = E_SAD;
+        } else if (state === "laughing") {
+          target = E_LAUGHING;
+        } else if (state === "dancing") {
+          target = E_DANCING;
         } else if (state === "responding") {
           const spd = level > 0.06 ? level * 14 : 0.06;
           talkPhase = (talkPhase + spd) % (Math.PI * 2);
@@ -709,7 +805,7 @@ export function GhostFace({
         const orientY = clamp(((ori?.beta ?? 45) - 45) / 40, -1, 1) * R * 0.08;
 
         // Alert: erratic dart physics
-        if (state === "alert") {
+        if (state === "alert" || state === "angry") {
           alertVX += (Math.random() - 0.5) * 1.2;
           alertVY += (Math.random() - 0.5) * 1.2;
           alertVX  = clamp(alertVX, -3, 3);
@@ -721,11 +817,49 @@ export function GhostFace({
           alertOffY *= 0.92;
         }
 
+        // Zoom bounce — ghost travels around the window during E_IDLE_ZOOM
+        const isZoomMicro = state === "idle" && currentMicro === E_IDLE_ZOOM;
+        if (isZoomMicro) {
+          if (!zoomActive) {
+            zoomActive = true;
+            const speed = 5 + Math.random() * 3;
+            const angle = Math.random() * Math.PI * 2;
+            zoomVX = Math.cos(angle) * speed;
+            zoomVY = Math.sin(angle) * speed;
+          }
+          zoomOffX += zoomVX;
+          zoomOffY += zoomVY;
+          // Bounce walls relative to ghost-area centre
+          const bW = gW * 0.36;
+          const bH = gH * 0.30;
+          if (zoomOffX >  bW) { zoomOffX =  bW; zoomVX = -Math.abs(zoomVX); }
+          if (zoomOffX < -bW) { zoomOffX = -bW; zoomVX =  Math.abs(zoomVX); }
+          if (zoomOffY >  bH) { zoomOffY =  bH; zoomVY = -Math.abs(zoomVY); }
+          if (zoomOffY < -bH) { zoomOffY = -bH; zoomVY =  Math.abs(zoomVY); }
+        } else {
+          zoomActive = false;
+          zoomOffX *= 0.92;
+          zoomOffY *= 0.92;
+          zoomVX   *= 0.88;
+          zoomVY   *= 0.88;
+        }
+
         // Spin — accumulate angle based on expr.spinSpeed (rotations/sec at 60fps)
         spinAngle += (expr.spinSpeed * Math.PI * 2) / 60;
+        if (expr.spinSpeed < 0.04) {
+          const nearest = Math.round(spinAngle / (Math.PI * 2)) * Math.PI * 2;
+          spinAngle = lerp(spinAngle, nearest, 0.06);
+        }
 
-        const ghostCX = cx + floatX + orientX + alertOffX;
-        const ghostCY = cy + floatY + orientY + alertOffY;
+        // Laugh shake — rapid side-to-side tremor
+        if (state === "laughing") {
+          laughShakeX = Math.sin(frame * 0.48) * R * 0.07;
+        } else {
+          laughShakeX *= 0.82;
+        }
+
+        const ghostCX = cx + zoomOffX + floatX + orientX + alertOffX + laughShakeX;
+        const ghostCY = cy + zoomOffY + floatY + orientY + alertOffY;
 
         // ── Particles ──────────────────────────────────────────────────────
         if (state === "reasoning" && frame % 18 === 0) {
@@ -795,6 +929,44 @@ export function GhostFace({
             ctx.fillText("?", qx, qy);
           }
           ctx.textBaseline = "alphabetic";  // restore default
+        }
+
+        // ── Floating HA / ha (laughing) ─────────────────────────────────────
+        if (state === "laughing") {
+          ctx.textAlign    = "center";
+          ctx.textBaseline = "middle";
+          const haPool = ["HA", "ha", "HA"];
+          for (let hi = 0; hi < 3; hi++) {
+            const drift  = ((frame * 0.007 + hi * 0.38) % 1.0);
+            const hx     = ghostCX + (hi - 1) * R * 0.82 + Math.sin(frame * 0.12 + hi) * R * 0.16;
+            const hy     = ghostCY - R * 0.42 - drift * R * 1.5;
+            const halpha = drift < 0.12 ? drift / 0.12 : drift > 0.72 ? Math.max(0, (1 - drift) / 0.28) : 0.78;
+            if (halpha < 0.04) continue;
+            const hsz = R * (0.25 - hi * 0.01);
+            ctx.font      = `bold ${Math.round(hsz)}px ui-monospace,'SF Mono','Courier New',monospace`;
+            ctx.fillStyle = `rgba(${sr},${sg},${sb},${halpha.toFixed(2)})`;
+            ctx.fillText(haPool[hi], hx, hy);
+          }
+          ctx.textBaseline = "alphabetic";
+        }
+
+        // ── Music notes (dancing) ───────────────────────────────────────────
+        if (state === "dancing") {
+          ctx.textAlign    = "center";
+          ctx.textBaseline = "middle";
+          const notes = ["♪", "♫", "♬"];
+          for (let ni = 0; ni < 3; ni++) {
+            const angle  = frame * 0.025 + ni * (Math.PI * 2 / 3);
+            const nR     = R * 1.62;
+            const nx     = ghostCX + Math.cos(angle) * nR;
+            const ny     = ghostCY + Math.sin(angle) * nR * 0.44 - R * 0.08;
+            const nsz    = R * (0.26 + 0.07 * Math.sin(frame * 0.048 + ni * 1.4));
+            const nalpha = 0.55 + 0.28 * Math.sin(frame * 0.065 + ni * 2.1);
+            ctx.font      = `${Math.round(nsz)}px serif`;
+            ctx.fillStyle = `rgba(${sr},${sg},${sb},${nalpha.toFixed(2)})`;
+            ctx.fillText(notes[ni], nx, ny);
+          }
+          ctx.textBaseline = "alphabetic";
         }
 
         // ── Scanlines ──────────────────────────────────────────────────────

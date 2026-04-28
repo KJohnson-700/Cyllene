@@ -29,7 +29,7 @@ import { getInitData, isTelegram } from "@/lib/telegram";
  *   fragment from the Obsidian vault via `obsidianApi.search` before the run.
  */
 
-export type AgentState = "idle" | "reasoning" | "responding" | "alert";
+export type AgentState = "idle" | "reasoning" | "responding" | "alert" | "angry" | "sad" | "laughing" | "dancing";
 
 export interface Message {
   id: string;
@@ -259,10 +259,14 @@ function useRunStreamState(): RunStreamApi {
 
             case "run.failed":
               pushLogEvent({ kind: 'fail', label: event.error ?? 'failed' });
+              setTimeout(() => {
+                setState((s) => ({ ...s, agentState: "idle", error: null }));
+              }, 4000);
               return {
                 ...s,
-                agentState: "alert",
+                agentState: "sad",
                 activeTool: null,
+                isRunning: false,
                 error: event.error ?? "Run failed",
               };
 
@@ -272,12 +276,19 @@ function useRunStreamState(): RunStreamApi {
         });
       },
       () => {
+        // Run completed successfully — briefly celebrate, then idle
         setState((s) => ({
           ...s,
-          agentState: "idle",
+          agentState: "dancing",
           activeTool: null,
           isRunning: false,
         }));
+        setTimeout(() => {
+          setState((s) => ({
+            ...s,
+            agentState: s.agentState === "dancing" ? "idle" : s.agentState,
+          }));
+        }, 3500);
       },
       () => {
         setState((s) => ({

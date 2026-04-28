@@ -60,7 +60,7 @@ export function DragonPage({ agentState: _agentState }: Props) {
       <DragonAtmosphere condition={condition} scene={scene} orientation={orientation} pulse={scenePulse} />
 
       <div className="relative z-10 flex flex-col flex-1 min-h-0 min-w-0 pointer-events-none">
-        {/* Top HUD — HERMES Mini App.html WeatherPage strip */}
+        {/* Top HUD */}
         <div className="content-safe-top px-3.5 pt-2.5 shrink-0 flex justify-between items-start gap-2">
           <div className="flex flex-col min-w-0">
             <span className="font-mono text-[15px] uppercase tracking-[0.12em] text-white/85 font-bold truncate">
@@ -119,7 +119,7 @@ export function DragonPage({ agentState: _agentState }: Props) {
           </div>
         </div>
 
-        {/* Current condition overlay — matches reference lower stack (no 7-day without API) */}
+        {/* Current condition overlay */}
         {weather && skyKey ? (
           <>
             <div className="px-5 pb-1 shrink-0 flex items-end justify-between gap-3">

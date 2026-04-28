@@ -33,10 +33,23 @@ function parseTtsVoiceOptions(): { id: string; label: string }[] {
     .filter((o) => o.id.length > 0);
 }
 
+const ANGRY_WORDS = ["fuck", "shit", "damn", "bitch", "crap", "wtf", "wrong", "incorrect", "no that", "stop that", "bad bot", "stupid"];
+function triggersAngry(text: string): boolean {
+  const l = text.toLowerCase();
+  return ANGRY_WORDS.some(w => l.includes(w));
+}
+
+const LAUGH_WORDS = ["good job", "well done", "nice work", "great job", "good bot", "love you", "love u", "you're the best", "youre the best", "perfect", "amazing", "excellent"];
+function triggersLaugh(text: string): boolean {
+  const l = text.toLowerCase();
+  return LAUGH_WORDS.some(w => l.includes(w));
+}
+
 export function ChatPage() {
   const [input, setInput] = useState("");
   const [openMicEnabled, setOpenMicEnabled] = useState(false);
   const [showInput, setShowInput] = useState(false);
+  const [ghostMood, setGhostMood] = useState<import("@/hooks/useRunStream").AgentState | null>(null);
 
   const { messages, agentState, activeTool, tokenCount, isRunning, error, sendMessage, cancel } =
     useRunStream();
@@ -118,6 +131,14 @@ export function ChatPage() {
     const text = input.trim();
     if (!text || isRunning) return;
     hasSentInSessionRef.current = true;
+    if (triggersAngry(text)) {
+      setGhostMood("angry");
+      setTimeout(() => setGhostMood(null), 2800);
+    }
+    if (triggersLaugh(text)) {
+      setGhostMood("laughing");
+      setTimeout(() => setGhostMood(null), 3000);
+    }
     stopListening();
     stop();
     haptic.impact("light");
@@ -229,7 +250,7 @@ export function ChatPage() {
       {/* Ghost region: cap height on very short TMA viewports so controls stay on-screen. */}
       <div className="chat-tma-ghost flex-1 min-h-0 flex flex-col max-h-[min(58dvh,420px)] min-h-[140px]">
         <GhostFace
-          agentState={speaking ? "responding" : agentState}
+          agentState={ghostMood ?? (speaking ? "responding" : agentState)}
           activeTool={activeTool}
           tokenCount={tokenCount}
           amplitude={amplitude}

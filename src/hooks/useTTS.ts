@@ -17,7 +17,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadPreference, savePreference } from "@/lib/telegram";
 
-const API_KEY = import.meta.env.VITE_API_KEY ?? "";
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const DEV = import.meta.env.DEV;
 const DEFAULT_VOICE =
@@ -175,7 +174,6 @@ export function useTTS() {
         cache: "no-store",
         headers: {
           "Content-Type": "application/json",
-          ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}),
           "ngrok-skip-browser-warning": "true",
         },
         body: JSON.stringify({
