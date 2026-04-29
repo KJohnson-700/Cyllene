@@ -334,6 +334,31 @@ function spawnParticle(cx: number, cy: number, R: number): Particle {
   };
 }
 
+// ── Per-state text particle system ────────────────────────────────────────────
+interface TextParticle {
+  x: number; y: number;
+  vx: number; vy: number;
+  text: string;
+  size: number;
+  alpha: number; life: number; maxLife: number;
+}
+function spawnTextParticle(
+  cx: number, cy: number, R: number,
+  text: string, vx: number, vy: number,
+): TextParticle {
+  const angle = Math.random() * Math.PI * 2;
+  const dist  = R * (0.6 + Math.random() * 0.6);
+  return {
+    x: cx + Math.cos(angle) * dist,
+    y: cy + Math.sin(angle) * dist,
+    vx, vy,
+    text,
+    size: R * (0.18 + Math.random() * 0.14),
+    alpha: 0, life: 0,
+    maxLife: 65 + Math.random() * 45,
+  };
+}
+
 // ── roundRect polyfill ─────────────────────────────────────────────────────────
 function rRect(
   ctx: CanvasRenderingContext2D,
@@ -685,6 +710,14 @@ export function GhostFace({
     // Particles (reasoning mode)
     const particles: Particle[] = [];
 
+    // Per-state text particles
+    const textParticles: TextParticle[] = [];
+
+    // Twist animation (Y-axis perspective squash)
+    let twistTimer = 0;
+    let twistNext  = 320 + Math.floor(Math.random() * 420);
+    let twistT     = 0;  // 0 = idle, 0..1 = one full rotation
+
     // ── Draw loop ────────────────────────────────────────────────────────────
     const draw = () => {
       raf = requestAnimationFrame(draw);
@@ -861,6 +894,23 @@ export function GhostFace({
         const ghostCX = cx + zoomOffX + floatX + orientX + alertOffX + laughShakeX;
         const ghostCY = cy + zoomOffY + floatY + orientY + alertOffY;
 
+        // ── Twist update ───────────────────────────────────────────────────
+        if (state === "idle") {
+          twistTimer++;
+          if (twistTimer >= twistNext && twistT === 0) {
+            twistT    = 0.01;
+            twistTimer = 0;
+            twistNext  = 360 + Math.floor(Math.random() * 480);
+          }
+        } else {
+          twistTimer = 0;
+        }
+        if (twistT > 0) {
+          twistT += 0.028;  // ~36 frames per half-turn ≈ 0.6 s full spin
+          if (twistT >= 1) twistT = 0;
+        }
+        const twistScale = twistT > 0 ? Math.abs(Math.cos(twistT * Math.PI * 2)) : 1;
+
         // ── Particles ──────────────────────────────────────────────────────
         if (state === "reasoning" && frame % 18 === 0) {
           particles.push(spawnParticle(ghostCX, ghostCY, R));
@@ -907,8 +957,13 @@ export function GhostFace({
           drawSparkle(ctx, p.x, p.y, p.r * p.alpha, p.alpha * 0.9, sr, sg, sb);
         }
 
-        // ── Draw ghost ─────────────────────────────────────────────────────
+        // ── Draw ghost (with optional Y-axis twist) ────────────────────────
+        ctx.save();
+        ctx.translate(ghostCX, ghostCY);
+        ctx.scale(twistScale, 1);
+        ctx.translate(-ghostCX, -ghostCY);
         drawGhost(ctx, ghostCX, ghostCY, R, frame, expr, sr, sg, sb, spinAngle);
+        ctx.restore();
 
         // ── Floating question marks (reasoning / waiting) ───────────────────
         if (state === "reasoning") {
@@ -968,6 +1023,55 @@ export function GhostFace({
           }
           ctx.textBaseline = "alphabetic";
         }
+
+        // ── Per-state text particles ───────────────────────────────────────
+        // Spawn
+        if (state === "idle" && frame % 110 === 0 && Math.random() < 0.55) {
+          const syms = ["✦", "✧", "✦", "*"];
+          const sym = syms[Math.floor(Math.random() * syms.length)];
+          textParticles.push(spawnTextParticle(ghostCX, ghostCY, R, sym,
+            (Math.random() - 0.5) * 0.7, -(0.55 + Math.random() * 0.7)));
+        }
+        if (state === "responding" && frame % 48 === 0) {
+          const syms = ["~", "~", "≈"];
+          textParticles.push(spawnTextParticle(ghostCX, ghostCY, R,
+            syms[Math.floor(Math.random() * syms.length)],
+            (Math.random() - 0.5) * 1.1, -(0.4 + Math.random() * 0.8)));
+        }
+        if (state === "alert" && frame % 20 === 0) {
+          textParticles.push(spawnTextParticle(ghostCX, ghostCY, R, "!",
+            (Math.random() - 0.5) * 3.2, (Math.random() - 0.5) * 3.2));
+        }
+        if (state === "angry" && frame % 32 === 0) {
+          const syms = ["#", "#", "!!"];
+          textParticles.push(spawnTextParticle(ghostCX, ghostCY, R,
+            syms[Math.floor(Math.random() * syms.length)],
+            (Math.random() - 0.5) * 1.2, -(0.6 + Math.random() * 0.8)));
+        }
+        if (state === "sad" && frame % 55 === 0 && Math.random() < 0.75) {
+          textParticles.push(spawnTextParticle(ghostCX, ghostCY, R, "·",
+            (Math.random() - 0.5) * 0.4, 0.7 + Math.random() * 0.5));
+        }
+
+        // Update + draw
+        ctx.textAlign    = "center";
+        ctx.textBaseline = "middle";
+        for (let i = textParticles.length - 1; i >= 0; i--) {
+          const tp = textParticles[i];
+          tp.life++;
+          tp.x += tp.vx;
+          tp.y += tp.vy;
+          // sad tears fall faster; others float up
+          if (state === "sad") tp.vy += 0.04;
+          else if (state !== "alert") tp.vy -= 0.014;
+          const frac = tp.life / tp.maxLife;
+          tp.alpha = frac < 0.18 ? frac / 0.18 : Math.max(0, 1 - (frac - 0.18) / 0.82);
+          if (tp.life >= tp.maxLife) { textParticles.splice(i, 1); continue; }
+          ctx.font      = `bold ${Math.round(tp.size)}px ui-monospace,'SF Mono','Courier New',monospace`;
+          ctx.fillStyle = `rgba(${sr},${sg},${sb},${tp.alpha.toFixed(2)})`;
+          ctx.fillText(tp.text, tp.x, tp.y);
+        }
+        ctx.textBaseline = "alphabetic";
 
         // ── Scanlines ──────────────────────────────────────────────────────
         ctx.globalAlpha = 0.018;

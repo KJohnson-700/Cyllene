@@ -66,7 +66,12 @@ async function buildMemoryAwarePrompt(prompt: string): Promise<string> {
   // Search the vault directly — proxy handles REST→filesystem fallback internally.
   // If search fails for any reason we silently fall back to the bare prompt.
   try {
-    const result = await obsidianApi.search(prompt);
+    const result = await Promise.race([
+      obsidianApi.search(prompt),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("search timeout")), 1400)
+      ),
+    ]);
     if (!result.ok) return prompt;
 
     const context = (result.results ?? [])

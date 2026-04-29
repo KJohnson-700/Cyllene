@@ -269,6 +269,7 @@ async def handle_tts(request: web.Request) -> web.Response:
         "model": MINIMAX_MODEL,
         "text": text[:9000],
         "stream": False,
+        "language_boost": "English",
         "voice_setting": {
             "voice_id": voice_id,
             "speed": speed,

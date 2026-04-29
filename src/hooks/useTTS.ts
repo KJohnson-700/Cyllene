@@ -288,6 +288,14 @@ export function useTTS() {
         .replace(/`[^`]+`/g, "")
         .replace(/[#*_~>]/g, "")
         .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+        // Strip non-Latin characters (Chinese, Arabic, etc.) to keep TTS in English
+        .replace(/[^\x00-\x7FÀ-ɏḀ-ỿ]/g, " ")
+        // Symbols to words
+        .replace(/\$/g, " dollars ").replace(/%/g, " percent ")
+        .replace(/&/g, " and ").replace(/@/g, " at ")
+        // Large numbers: 1,000 → 1000 (remove commas so TTS reads naturally)
+        .replace(/(\d),(\d{3})/g, "$1$2")
+        .replace(/\s+/g, " ")
         .trim();
       if (!clean) return;
       queueRef.current.push(clean);
