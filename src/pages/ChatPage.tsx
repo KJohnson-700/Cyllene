@@ -248,7 +248,7 @@ export function ChatPage() {
     <div className="flex flex-col h-full min-h-0 bg-transparent select-none content-safe-top safe-area-x">
 
       {/* Ghost region: cap height on very short TMA viewports so controls stay on-screen. */}
-      <div className="chat-tma-ghost flex-1 min-h-0 flex flex-col max-h-[min(58dvh,420px)] min-h-[140px]">
+      <div className="chat-tma-ghost flex-1 min-h-0 flex flex-col min-h-[140px]">
         <GhostFace
           agentState={ghostMood ?? (speaking ? "responding" : agentState)}
           activeTool={activeTool}
