@@ -446,12 +446,6 @@ function drawGhost(
   ctx.lineWidth   = 1.8;
   ctx.stroke();
 
-  // ── Inner highlight — top-left sheen ──
-  ctx.beginPath();
-  ctx.arc(cx - R * 0.24, cy - R * 0.32, R * 0.48, Math.PI * 1.1, Math.PI * 1.85, false);
-  ctx.strokeStyle = "rgba(255,255,255,0.55)";
-  ctx.lineWidth   = R * 0.09;
-  ctx.stroke();
 
   // ── Arms — only in alert state ──
   if (e.armRaise > 0.08) {
