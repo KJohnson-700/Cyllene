@@ -524,6 +524,23 @@ async def handle_obsidian_file(request: web.Request) -> web.Response:
         )
 
 
+PSB_STATUS_FILE = Path(
+    os.getenv("PSB_STATUS_FILE", str(Path.home() / ".hermes" / "data" / "psb_status.json"))
+)
+
+
+async def handle_psb_status(request: web.Request) -> web.Response:
+    """GET /api/psb/status → latest VPS bot health row (written by psb_status_emit cron)."""
+    try:
+        data = json.loads(PSB_STATUS_FILE.read_text())
+    except Exception as exc:
+        data = {"ok": False, "error": f"no status file: {exc}"}
+    return web.json_response(
+        data,
+        headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"},
+    )
+
+
 async def handle_options(request: web.Request) -> web.Response:
     return web.Response(headers={
         "Access-Control-Allow-Origin": "*",
@@ -542,6 +559,8 @@ def make_app() -> web.Application:
     app.router.add_post("/obsidian/daily-append", handle_obsidian_daily_append)
     app.router.add_get("/obsidian/recent",        handle_obsidian_recent)
     app.router.add_get("/obsidian/file",          handle_obsidian_file)
+    # PSB bot status — local route, MUST come before the generic /api/* proxy
+    app.router.add_get("/api/psb/status",         handle_psb_status)
     app.router.add_route("*", "/v1/{path:.*}", handle_api)
     app.router.add_route("*", "/health",        handle_api)
     app.router.add_route("*", "/api/{path:.*}", handle_web)

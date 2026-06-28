@@ -42,3 +42,6 @@ venv/
 
 # Local scratch / screenshots (not for repo)
 tmp/
+
+# ── PSB live status snapshot (transient, written by psb-status-emit cron) ──────
+public/psb_status.json

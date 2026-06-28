@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { obsidianApi, getHealth, type ObsidianStatus, type HealthResponse } from "@/lib/api";
 import { BookOpen, Cpu, Zap, ChevronRight } from "lucide-react";
+import { PSBPanel } from "@/components/monitor/PSBPanel";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -112,6 +113,9 @@ export function MonitorWidgets() {
 
   return (
     <div className="flex flex-col gap-3 p-4">
+
+      {/* PSB trading bot — live command center */}
+      <PSBPanel />
 
       {/* Status grid */}
       <div className="grid grid-cols-2 gap-2">
